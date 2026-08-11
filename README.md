@@ -172,7 +172,7 @@ CPLEX deve essere installato dal sito ufficiale IBM:
 
 [IBM ILOG CPLEX Optimization Studio](https://www.ibm.com/products/ilog-cplex-optimization-studio)
 
-Per questo progetto è consigliata, quando disponibile, la versione accademica.
+Per questo progetto è consigliata la versione accademica.
 
 Dopo aver installato CPLEX, installare anche l'interfaccia Python nell'ambiente virtuale:
 
@@ -180,7 +180,7 @@ Dopo aver installato CPLEX, installare anche l'interfaccia Python nell'ambiente 
 python -m pip install cplex
 ```
 
-Se necessario, collegare DOcplex alla versione completa di CPLEX Studio:
+Collegare DOcplex alla versione completa di CPLEX Studio:
 
 ```bash
 docplex config --upgrade "C:/Program Files/IBM/ILOG/CPLEX_Studio..."
