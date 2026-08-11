@@ -1,0 +1,68 @@
+{
+    "nome": "Dairy case - Becker Table B.2",
+    "fonte_process_data": "Helen Becker thesis (2012), Table B.2",
+
+    "delta_T_min": 4.0,
+    "delta_T_max": 4.0,
+
+    "eta_ex": 0.60,
+    "evaP": 2.0,
+    "condP": 2.0,
+    "T_cond_max": null,
+
+    "T0": 288.15,
+    "T_f": 1073.15,
+
+    "utilities": {
+        "HPPr": {
+            "enabled": true,
+            "max": 3
+        },
+        "HPUt": {
+            "enabled": false,
+            "max": 0
+        },
+        "chiller": {
+            "enabled": false,
+            "max": 0
+        },
+        "ORC": {
+            "enabled": false,
+            "max": 0
+        },
+        "CHP": {
+            "enabled": false,
+            "max": 0
+        },
+        "HP_max": 3
+    },
+  "flussi": [
+    {"codice":"ref","nome":"ref","tipo":"hot","T_in":6.0,"T_out":4.0,"heat_load_kW":76.0,"delta_T_min_half":2.0,"processo":"refrig","zona":"processo","disponibile":true,"remark":"refrigeration inlet milk"},
+    {"codice":"pasto1a","nome":"pasto1a","tipo":"cold","T_in":4.0,"T_out":66.0,"heat_load_kW":2356.0,"delta_T_min_half":2.0,"processo":"pasto","zona":"processo","disponibile":true,"remark":"preheating"},
+    {"codice":"pasto2a","nome":"pasto2a","tipo":"cold","T_in":66.0,"T_out":86.0,"heat_load_kW":676.4,"delta_T_min_half":2.0,"processo":"pasto","zona":"processo","disponibile":true,"remark":"pasteurization milk"},
+    {"codice":"pasto3a","nome":"pasto3a","tipo":"hot","T_in":86.0,"T_out":4.0,"heat_load_kW":2773.2,"delta_T_min_half":2.0,"processo":"pasto","zona":"processo","disponibile":true,"remark":"refrigeration milk"},
+    {"codice":"pasto4a","nome":"pasto4a","tipo":"cold","T_in":66.0,"T_out":98.0,"heat_load_kW":119.7,"delta_T_min_half":2.0,"processo":"pasto","zona":"processo","disponibile":true,"remark":"pasteurization cream"},
+    {"codice":"pasto5a","nome":"pasto5a","tipo":"hot","T_in":98.0,"T_out":4.0,"heat_load_kW":351.6,"delta_T_min_half":2.0,"processo":"pasto","zona":"processo","disponibile":true,"remark":"refrigeration cream"},
+    {"codice":"eva1","nome":"eva1","tipo":"cold","T_in":4.0,"T_out":70.3,"heat_load_kW":504.0,"delta_T_min_half":2.0,"processo":"evap","zona":"processo","disponibile":true,"remark":"preheating"},
+    {"codice":"eva2","nome":"eva2","tipo":"cold","T_in":70.3,"T_out":70.3,"heat_load_kW":904.2,"delta_T_min_half":1.2,"isotermo":true,"processo":"evap","zona":"processo","disponibile":true,"remark":"evaporation 1.effect"},
+    {"codice":"eva3","nome":"eva3","tipo":"cold","T_in":66.4,"T_out":66.4,"heat_load_kW":864.1,"delta_T_min_half":1.2,"isotermo":true,"processo":"evap","zona":"processo","disponibile":true,"remark":"evaporation 2.effect"},
+    {"codice":"eva4","nome":"eva4","tipo":"cold","T_in":60.8,"T_out":60.8,"heat_load_kW":849.8,"delta_T_min_half":1.2,"isotermo":true,"processo":"evap","zona":"processo","disponibile":true,"remark":"evaporation 3.effect"},
+    {"codice":"eva5","nome":"eva5","tipo":"hot","T_in":60.8,"T_out":4.0,"heat_load_kW":151.5,"delta_T_min_half":2.0,"processo":"evap","zona":"processo","disponibile":true,"remark":"refrigeration concentrated milk"},
+    {"codice":"eva6","nome":"eva6","tipo":"hot","T_in":68.9,"T_out":68.9,"heat_load_kW":904.2,"delta_T_min_half":1.2,"isotermo":true,"processo":"evap_rec","zona":"processo","disponibile":true,"remark":"condensation 1.effect"},
+    {"codice":"eva7","nome":"eva7","tipo":"hot","T_in":65.9,"T_out":65.9,"heat_load_kW":864.1,"delta_T_min_half":1.2,"isotermo":true,"processo":"evap_rec","zona":"processo","disponibile":true,"remark":"condensation 2.effect"},
+    {"codice":"eva9","nome":"eva9","tipo":"hot","T_in":68.9,"T_out":15.0,"heat_load_kW":87.8,"delta_T_min_half":2.0,"processo":"evap_rec","zona":"processo","disponibile":true,"remark":"condensation 3.effect"},
+    {"codice":"eva10","nome":"eva10","tipo":"hot","T_in":65.9,"T_out":15.0,"heat_load_kW":80.8,"delta_T_min_half":2.0,"processo":"evap_rec","zona":"processo","disponibile":true,"remark":"cooling condensates 1.effect"},
+    {"codice":"eva8","nome":"eva8","tipo":"hot","T_in":60.1,"T_out":60.1,"heat_load_kW":849.8,"delta_T_min_half":1.2,"isotermo":true,"processo":"evap_rec","zona":"processo","disponibile":true,"remark":"cooling condensates 2.effect"},
+    {"codice":"eva11","nome":"eva11","tipo":"hot","T_in":60.1,"T_out":15.0,"heat_load_kW":69.7,"delta_T_min_half":2.0,"processo":"evap_rec","zona":"processo","disponibile":true,"remark":"cooling condensates 3.effect"},
+    {"codice":"yog1","nome":"yog1","tipo":"cold","T_in":4.0,"T_out":94.0,"heat_load_kW":1026.0,"delta_T_min_half":2.0,"processo":"yog","zona":"processo","disponibile":true,"remark":"heating"},
+    {"codice":"yog2","nome":"yog2","tipo":"hot","T_in":94.0,"T_out":10.0,"heat_load_kW":957.6,"delta_T_min_half":2.0,"processo":"yog","zona":"processo","disponibile":true,"remark":"cooling"},
+    {"codice":"des1","nome":"des1","tipo":"cold","T_in":4.0,"T_out":90.0,"heat_load_kW":817.0,"delta_T_min_half":2.0,"processo":"des","zona":"processo","disponibile":true,"remark":"heating"},
+    {"codice":"des2","nome":"des2","tipo":"hot","T_in":90.0,"T_out":70.0,"heat_load_kW":190.0,"delta_T_min_half":2.0,"processo":"des","zona":"processo","disponibile":true,"remark":"cooling"},
+    {"codice":"hw","nome":"hw","tipo":"cold","T_in":15.0,"T_out":55.0,"heat_load_kW":167.2,"delta_T_min_half":2.0,"processo":"hwat","zona":"processo","disponibile":true,"remark":"hot water production"},
+    {"codice":"CIP1a","nome":"CIP1a","tipo":"cold","T_in":58.7,"T_out":70.0,"heat_load_kW":188.6,"delta_T_min_half":2.0,"processo":"CIP","zona":"processo","disponibile":true,"remark":"maintain temperature CIP1"},
+    {"codice":"CIP1b","nome":"CIP1b","tipo":"hot","T_in":65.0,"T_out":15.0,"heat_load_kW":104.5,"delta_T_min_half":2.0,"processo":"CIP","zona":"processo","disponibile":true,"remark":"recuperation waste heat CIP1"},
+    {"codice":"CIP2a","nome":"CIP2a","tipo":"cold","T_in":67.5,"T_out":80.0,"heat_load_kW":209.5,"delta_T_min_half":2.0,"processo":"CIP","zona":"processo","disponibile":true,"remark":"maintain temperature CIP2"},
+    {"codice":"CIP2b","nome":"CIP2b","tipo":"hot","T_in":75.0,"T_out":15.0,"heat_load_kW":125.4,"delta_T_min_half":2.0,"processo":"CIP","zona":"processo","disponibile":true,"remark":"recuperation waste heat CIP2"},
+    {"codice":"frig","nome":"frig","tipo":"hot","T_in":5.0,"T_out":5.0,"heat_load_kW":300.0,"delta_T_min_half":2.0,"isotermo":true,"processo":"frigsto","zona":"processo","disponibile":true,"remark":"maintain storage temperature"}
+  ]
+}
