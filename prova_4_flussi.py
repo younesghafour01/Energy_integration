@@ -1,22 +1,11 @@
 import json
 from pathlib import Path
+from integrazione_energetica import (Flusso, crea_cascata_termica, costruisci_curve_composite,
+                           costruisci_GCC, discretizza_GCC, genera_HPPr_candidate,
+                           costruisci_curva_utilities_HP, self_sufficient_pockets,
+                           grafico_TQ,crea_modello_HPPr, risolvi_modello_HPPr)
 
 
-from analisi_pinch import (
-    Flusso,
-    crea_cascata_termica,
-    costruisci_curve_composite,
-    costruisci_GCC,
-    discretizza_GCC,
-    genera_HPPr_candidate,
-    costruisci_curva_utilities_HP,
-    self_sufficient_pockets,
-    grafico_TQ,
-)
-from modello_milp import (
-    crea_modello_HPPr,
-    risolvi_modello_HPPr,
-)
 # Percorso del JSON, nella stessa cartella di questo file.
 PERCORSO_JSON = Path(__file__).with_name("dati_input.json")
 CARTELLA_RISULTATI = ( Path(__file__).resolve().parent / "risultati")
