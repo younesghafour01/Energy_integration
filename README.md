@@ -1,104 +1,219 @@
 # Energy Integration from Scratch
 
-Implementazione di un algoritmo di ottimizzazione delle reti di scambio termico basato sulla teoria del pinch analysis
+Implementazione di un algoritmo di ottimizzazione per l'integrazione energetica basato sulla **Pinch Analysis**.
 
-Questa versione rappresenta il caso base a quattro flussi presentato ed è tratto da Zoughaib (2017), Energy Integration of Continuous Processes: From Pinch Analysis to Hybrid Exergy/Pinch Analysis..  
+Questa versione rappresenta il **caso base a quattro flussi** ed è tratta da:
 
-La pinch analysis è un metodo sostanzialmente grafico, quindi in linea generale l'algoritmo svolge dei calcoli e vengono affiancati i grafici ai risultati numerici.
+> Zoughaib, A. (2017), *Energy Integration of Continuous Processes: From Pinch Analysis to Hybrid Exergy/Pinch Analysis*.
 
-Step by step leggendo il codice è possibile notare la ricostruzione del metodo nello stesso ordine con cui è stato descritto dalla fonte
+La Pinch Analysis è un metodo fortemente basato sulla rappresentazione grafica. Per questo motivo, il programma affianca ai risultati numerici i principali grafici utilizzati durante l'analisi.
 
-L'algoritmo si articola in 3 file principali:
+Leggendo il codice è possibile seguire la ricostruzione del metodo nello stesso ordine con cui viene presentato nella fonte di riferimento.
 
-- file json contenente i file di input di ogni caso studio
+---
 
-- file di analisi_pinch: in questo file vengono ricostruiti gli strumenti per la pinch analysis e il modello matematico MILP per l'ottimizzazione della rete di scambio. Il file è composto da:
+## Struttura del progetto
 
-    - una classe Flusso che caratterizza i flussi, questa classe ha 2 metodi calcola_Q e calcola_T_traslate
+Il progetto si articola in tre file principali.
 
-    - 4 funzioni per l'analisi pinch
-        - crea_cascata_termica
-        - costruisci_curve_composite
-        - costruisci_GCC
-        - self_sufficient_pockets
-    - 3 funzioni per preparare l'input del risolutore che ricerca la soluzione di ottimo di cuii una che fa uso della libreria docplex
-        - def discretizza_GCC
-        - genera_HPPr_candidate
-        - crea_modello_HPPr questa funzione genera una classe importata doclpex
-            - docplex è la libreria che dev’essere utilizzata per creare variabili vincoli e funzioni obiettivo da passare poi a al motore che risolve poi il problema di ottimizzazione detto CPLEX
-    - 1 funzione per attivare passare i dati di input al risolutore dopo che sono stati costruiti varibili, vincoli, funzione di ottimo, la GCC è stata discretizzata e indicizzata come previsto dall'algoritmo descritto dalla fonte. CPLEX è un solver matematico di ottimizzazione sviluppato da IBM. In pratica, tu gli fornisci un problema del tipo: minf(x) soggetto a: Ax≤b con alcune variabili continue e/o intere/binarie, e CPLEX cerca automaticamente la soluzione ottima.
-        - risolvi_modello_HPPr
-    - 2 funzioni per la visualizzazione grafica dei risultati e per poter monitorare i vari step dell'algoritmo graficamente
-        - grafico_TQ (genera GCC e curve composite)
-        - costruisci_curva_utilities_HP (aggiunge alla GCC le tilities)
-- file prova_4_flussi: questo file estrae i dati dal file json ed esegue la simulazione, stampa i risultati e genera i grafici 
+### `dati_input.json`
 
+Contiene i dati di input del caso studio e i parametri necessari all'analisi.
 
-Riassumendo in breve cosa fa l'algoritmo:
+### `integrazione_energetica.py`
 
-1. legge i dati di processo da un file JSON (dati input);
-2. esegue la cascata termica seguendo le definizioni date dalla fonte principale;
-3. calcola i Minimum Energy Requirements (fabbisogno energetico che deve essere coperto dalle utilities);
-4. costruisce Composite Curves e Grand Composite Curve per il processo che non fa ancora uso di utilities esterne. 
-5. individua Main Pinch Point, Potential Pinch Points e self-sufficient pockets. 
+Contiene gli strumenti per la Pinch Analysis e il modello matematico MILP utilizzato per la preselezione delle process heat pump.
+
+Il file comprende:
+
+#### Classe `Flusso`
+
+La classe `Flusso` caratterizza i flussi di processo e contiene i metodi:
+
+- `calcola_Q()`
+- `calcola_T_traslate()`
+
+#### Funzioni per la Pinch Analysis
+
+- `crea_cascata_termica()`
+- `costruisci_curve_composite()`
+- `costruisci_GCC()`
+- `self_sufficient_pockets()`
+
+#### Funzioni per preparare il problema di ottimizzazione
+
+- `discretizza_GCC()`
+- `genera_HPPr_candidate()`
+- `crea_modello_HPPr()`
+
+La funzione `crea_modello_HPPr()` utilizza **DOcplex** per costruire:
+
+- variabili decisionali;
+- vincoli;
+- funzione obiettivo.
+
+DOcplex prepara quindi il problema matematico che viene successivamente risolto da **CPLEX**.
+
+#### Funzione di risoluzione
+
+- `risolvi_modello_HPPr()`
+
+Questa funzione passa il modello a CPLEX e recupera la soluzione ottima.
+
+CPLEX è un solver matematico di ottimizzazione sviluppato da IBM. Nel nostro caso risolve un problema MILP composto da variabili continue e binarie, vincoli lineari e una funzione obiettivo exergetica.
+
+#### Funzioni per la visualizzazione
+
+- `grafico_TQ()`
+- `costruisci_curva_utilities_HP()`
+
+Queste funzioni permettono di visualizzare le Composite Curves, la GCC, le self-sufficient pockets e la Integrated Composite Curve.
+
+### `prova_4_flussi.py`
+
+È il file da eseguire.
+
+Legge i dati da `dati_input.json`, esegue la simulazione, stampa i risultati nel terminale e genera i grafici.
+
+---
+
+## Cosa fa l'algoritmo
+
+In sintesi, il programma:
+
+1. legge i dati di processo dal file JSON;
+2. esegue la cascata termica;
+3. calcola i **Minimum Energy Requirements**;
+4. costruisce le **Composite Curves** e la **Grand Composite Curve**;
+5. individua **Main Pinch Point**, **Potential Pinch Points** e **self-sufficient pockets**;
 6. discretizza la GCC;
-7. genera le heat pump di processo candidate;
-8. costruisce il MILP con DOcplex (libreria contenete gli oggetti per cui il risolutore può lavorare)
+7. genera le process heat pump candidate;
+8. costruisce il modello MILP con DOcplex;
 9. risolve il MILP con CPLEX;
-9. restituisce la HP selezionata e i principali risultati energetici/exergetici;
-10. genera i grafici nella cartella `risultati`.
+10. restituisce la HP selezionata e i principali risultati energetici ed exergetici;
+11. genera i grafici nella cartella `risultati/`.
 
+---
 
-Avvio del programma
+# Avvio del programma
 
-Requisiti
-Sul PC per questa simulazione sono stati installati:
-- Python 3
-- IBM ILOG CPLEX Optimization Studio
-- Le librerie Python necessarie sono:
-    - matplotlib
-    - docplex
+## Requisiti
 
+Sul PC devono essere installati:
 
-Struttura della cartella
+- Python 3;
+- IBM ILOG CPLEX Optimization Studio.
+
+Librerie Python necessarie:
+
+- `matplotlib`
+- `docplex`
+- `cplex`
+
+---
+
+## Struttura della cartella
+
 I file principali devono trovarsi nella stessa cartella:
 
+```text
 energy-integration-from-scratch/
 ├── integrazione_energetica.py
 ├── prova_4_flussi.py
 ├── dati_input.json
 └── risultati/
+```
 
 La cartella `risultati/` viene creata automaticamente se non esiste.
 
+---
 
-Primo avvio
-1. Aprire il terminale nella cartella: energy-integration-from-scratch
+## Primo avvio
 
-(Verificare di essere nella cartella corretta con)
+### 1. Aprire il terminale nella cartella del progetto
 
-2. Creare l'ambiente virtuale: python -m venv .venv
-3. Attivarlo: source .venv/Scripts/activate
+Posizionarsi nella cartella:
 
-4. Installare le librerie:
-    python -m pip install --upgrade pip
-    python -m pip install matplotlib docplex
+```text
+energy-integration-from-scratch
+```
 
-5. bisogna installare CPLEX dal sito del produttore. se si usa la mail accademica si accede alla versione più estesa e con meno limitazioni. consigliata per questo progetto
-link al prodotto: https://www.ibm.com/products/ilog-cplex-optimization-studio?utm_source=chatgpt.com.
-# installare le interfacce Python
+È possibile verificare la posizione con:
+
+```bash
+pwd
+ls
+```
+
+### 2. Creare l'ambiente virtuale
+
+```bash
+python -m venv .venv
+```
+
+### 3. Attivare l'ambiente virtuale
+
+Con Git Bash:
+
+```bash
+source .venv/Scripts/activate
+```
+
+### 4. Installare le librerie Python
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install matplotlib docplex
+```
+
+### 5. Installare CPLEX
+
+CPLEX deve essere installato dal sito ufficiale IBM:
+
+[IBM ILOG CPLEX Optimization Studio](https://www.ibm.com/products/ilog-cplex-optimization-studio)
+
+Per questo progetto è consigliata, quando disponibile, la versione accademica.
+
+Dopo aver installato CPLEX, installare anche l'interfaccia Python nell'ambiente virtuale:
+
+```bash
 python -m pip install cplex
+```
 
-# collegare docplex alla versione completa di CPLEX Studio
+Se necessario, collegare DOcplex alla versione completa di CPLEX Studio:
+
+```bash
 docplex config --upgrade "C:/Program Files/IBM/ILOG/CPLEX_Studio..."
+```
 
-# verificare
+Sostituire il percorso con quello effettivo della propria installazione.
+
+Verificare che Python riesca a importare CPLEX:
+
+```bash
 python -c "import cplex; print(cplex.__version__)"
+```
 
-6. si può lanciare il programma, con l'ambiente virtuale attivo e trovandosi nella cartella del progetto, semplicemnte con: python prova_4_flussi.py
+---
 
-7. I grafici vengono salvati nella cartella:
+## Esecuzione
 
+Con l'ambiente virtuale attivo e il terminale posizionato nella cartella del progetto:
+
+```bash
+python prova_4_flussi.py
+```
+
+Non è necessario eseguire direttamente `integrazione_energetica.py`.
+
+---
+
+## Risultati
+
+I principali risultati numerici vengono stampati direttamente nel terminale.
+
+I grafici vengono salvati nella cartella:
+
+```text
 risultati/
-
-e alcuni dati e risultati stampati sul terminale
+```
