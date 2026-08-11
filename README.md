@@ -14,8 +14,6 @@ La formulazione MILP segue l'impostazione di Thibault et al. per la preselezione
 
 La Pinch Analysis è fortemente basata sulla rappresentazione grafica. Per questo il programma affianca ai risultati numerici le principali curve utilizzate durante l'analisi: Composite Curves, Grand Composite Curve, self-sufficient pockets, GCC aggiornata e Integrated Composite Curve.
 
-Il codice è organizzato in modo da poter eseguire casi studio differenti senza modificare le funzioni: i dati e le utilities disponibili vengono definiti tramite file JSON con struttura standard.
-
 ---
 
 ## Struttura del progetto
