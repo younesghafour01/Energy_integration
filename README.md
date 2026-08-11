@@ -1,6 +1,6 @@
 # Energy Integration from Scratch
 
-Implementazione didattica di un algoritmo per l'integrazione energetica basato sulla **Pinch Analysis** e su un modello **MILP** per la preselezione delle utilities.
+Implementazione di un algoritmo per l'integrazione energetica basato sulla **Pinch Analysis** e su un modello **MILP** per la preselezione delle utilities.
 
 Il progetto è stato sviluppato a partire principalmente da:
 
