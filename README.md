@@ -328,9 +328,6 @@ Lo stesso schema può essere utilizzato per qualsiasi nuovo caso studio:
 ```bash
 python esegui.py nome_file.json
 ```
-
-Non è necessario modificare `integrazione_energetica.py` o creare un nuovo file Python per ogni caso.
-
 ---
 
 ## Cartella dei risultati
