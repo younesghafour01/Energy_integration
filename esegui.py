@@ -11,6 +11,12 @@ from integrazione_energetica import (
     genera_indici_q_HEN,
     calcola_delta_H_HEN,
     costruisci_utilities_HEN,
+    crea_modello_bilanci_HEN,
+    calcola_parametri_area_HEN,
+    costruisci_tecnologie_HEN,
+    aggiungi_variabili_tecnologie_HEN,
+    aggiungi_vincoli_area_HEN,
+    aggiungi_obiettivo_TAC_HEN,
 )
 
 
@@ -138,7 +144,21 @@ dati_pinch = prepara_pinch(
 
 configurazione = dati_pinch["configurazione"]
 
+configurazione_HEN = configurazione.get(
+    "hens",
+    {},
+)
 
+separa_al_pinch_HEN = configurazione_HEN.get(
+    "separa_al_pinch",
+    True,
+)
+
+if type(separa_al_pinch_HEN) is not bool:
+    raise ValueError(
+        "'hens.separa_al_pinch' deve essere "
+        "true oppure false."
+    )
 # =====================================================
 # MODALITÀ 1: SOLO PARTIZIONE HENS
 # =====================================================
@@ -204,6 +224,7 @@ elif modalita == "hens-sets":
         numero_intervalli_min=(
             configurazione["numero_intervalli_min"]
         ),
+        separa_al_pinch=separa_al_pinch_HEN,
         debug=False,
     )
 
@@ -268,6 +289,7 @@ elif modalita == "hens-q-indices":
         numero_intervalli_min=(
             configurazione["numero_intervalli_min"]
         ),
+        separa_al_pinch=separa_al_pinch_HEN,
         debug=False,
     )
 
@@ -324,6 +346,7 @@ elif modalita == "hens-delta-h":
         numero_intervalli_min=(
             configurazione["numero_intervalli_min"]
         ),
+        separa_al_pinch=separa_al_pinch_HEN,
         debug=False,
     )
 
@@ -421,6 +444,7 @@ elif modalita == "hens-utilities":
             ]
         ),
         utilities=utilities_HEN,
+        separa_al_pinch=separa_al_pinch_HEN,
         debug=True,
     )
 
@@ -494,20 +518,22 @@ elif modalita == "hens-full-preprocess":
     # =================================================
 
     intervalli_HEN = crea_partizione_HEN(
-        gcc=dati_pinch["gcc"],
-        flussi=configurazione["flussi_oggetti"],
-        delta_T_min=configurazione["delta_T_min"],
-        pinch_traslati=dati_pinch["pinch_traslati_C"],
-        delta_T_partition_max=(
-            configurazione["delta_T_partition_max"]
-        ),
-        numero_intervalli_min=(
-            configurazione["numero_intervalli_min"]
-        ),
-        utilities=utilities_HEN,
-        debug=False,
-    )
+    gcc=dati_pinch["gcc"],
+    flussi=configurazione["flussi_oggetti"],
+    delta_T_min=configurazione["delta_T_min"],
+    pinch_traslati=dati_pinch["pinch_traslati_C"],
+    delta_T_partition_max=(
+        configurazione["delta_T_partition_max"]
+    ),
+    numero_intervalli_min=(
+        configurazione["numero_intervalli_min"]
+    ),
+    utilities=utilities_HEN,
 
+    separa_al_pinch=separa_al_pinch_HEN,
+
+    debug=False,
+)
 
     print("\nPARTIZIONE HENS")
 
@@ -750,6 +776,779 @@ elif modalita == "hens-full-preprocess":
             "ERRORE: nessun indice q generato "
             "per C3."
         )
+elif modalita == "hens-balances":
+
+    print("\n" + "=" * 70)
+    print("TEST MODELLO BILANCI HENS")
+    print("=" * 70)
+
+
+    # =================================================
+    # 1. UTILITIES
+    # =================================================
+
+    utilities_HEN = costruisci_utilities_HEN(
+        configurazione,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 2. PARTIZIONE
+    # =================================================
+
+    intervalli_HEN = crea_partizione_HEN(
+        gcc=dati_pinch["gcc"],
+        flussi=configurazione[
+            "flussi_oggetti"
+        ],
+        delta_T_min=configurazione[
+            "delta_T_min"
+        ],
+        pinch_traslati=dati_pinch[
+            "pinch_traslati_C"
+        ],
+        delta_T_partition_max=(
+            configurazione[
+                "delta_T_partition_max"
+            ]
+        ),
+        numero_intervalli_min=(
+            configurazione[
+                "numero_intervalli_min"
+            ]
+        ),
+        utilities=utilities_HEN,
+        separa_al_pinch=separa_al_pinch_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 3. INSIEMI
+    # =================================================
+
+    insiemi_HEN = costruisci_insiemi_HEN(
+        flussi=configurazione[
+            "flussi_oggetti"
+        ],
+        utilities=utilities_HEN,
+        intervalli=intervalli_HEN,
+        delta_T_min=configurazione[
+            "delta_T_min"
+        ],
+    )
+
+
+    # =================================================
+    # 4. INDICI q
+    # =================================================
+
+    indici_q = genera_indici_q_HEN(
+        insiemi_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 5. ΔH PROCESS STREAMS
+    # =================================================
+
+    delta_H_HEN = calcola_delta_H_HEN(
+        insiemi_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 6. MODELLO DOCPLEX
+    # =================================================
+
+    modello_bilanci = (
+        crea_modello_bilanci_HEN(
+            insiemi_HEN=insiemi_HEN,
+            indici_q=indici_q,
+            delta_H_HEN=delta_H_HEN,
+            debug=True,
+        )
+    )
+
+
+    mdl = modello_bilanci[
+        "modello"
+    ]
+
+
+    # =================================================
+    # 7. RISOLUZIONE
+    # =================================================
+
+    soluzione = mdl.solve(
+        log_output=True
+    )
+
+
+    if soluzione is None:
+
+        print(
+            "\nNESSUNA SOLUZIONE "
+            "FATTIBILE TROVATA."
+        )
+
+    else:
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "SOLUZIONE BILANCI HENS"
+        )
+
+        print(
+            "=" * 70
+        )
+
+
+        # =============================================
+        # HOT UTILITIES
+        # =============================================
+
+        for i, variabile in (
+            modello_bilanci[
+                "F_H"
+            ].items()
+        ):
+
+            F = variabile.solution_value
+
+            delta_T = (
+                modello_bilanci[
+                    "delta_T_HU"
+                ][i]
+            )
+
+            Q = (
+                F * delta_T
+            )
+
+            print(
+                f"\nHot utility {i}"
+            )
+
+            print(
+                f"  F = "
+                f"{F:.6f} kW/K"
+            )
+
+            print(
+                f"  ΔT totale = "
+                f"{delta_T:.3f} K"
+            )
+
+            print(
+                f"  Q = "
+                f"{Q:.3f} kW"
+            )
+
+
+        # =============================================
+        # COLD UTILITIES
+        # =============================================
+
+        for j, variabile in (
+            modello_bilanci[
+                "F_C"
+            ].items()
+        ):
+
+            F = variabile.solution_value
+
+            delta_T = (
+                modello_bilanci[
+                    "delta_T_CU"
+                ][j]
+            )
+
+            Q = (
+                F * delta_T
+            )
+
+            print(
+                f"\nCold utility {j}"
+            )
+
+            print(
+                f"  F = "
+                f"{F:.6f} kW/K"
+            )
+
+            print(
+                f"  ΔT totale = "
+                f"{delta_T:.3f} K"
+            )
+
+            print(
+                f"  Q = "
+                f"{Q:.3f} kW"
+            )
+
+
+        # =============================================
+        # q NON NULLI
+        # =============================================
+
+        q_non_nulli = [
+            (
+                indice,
+                variabile.solution_value,
+            )
+            for indice, variabile
+            in modello_bilanci["q"].items()
+            if (
+                variabile.solution_value
+                > 1e-6
+            )
+        ]
+
+        print(
+            f"\nNumero q non nulli: "
+            f"{len(q_non_nulli)}"
+        )
+
+        print(
+            "\nPrime 20 q non nulle:"
+        )
+
+        for (
+            indice,
+            valore,
+        ) in q_non_nulli[:20]:
+
+            print(
+                f"  {indice} "
+                f"= {valore:.3f} kW"
+            )
+elif modalita == "hens-area-params":
+
+    print("\n" + "=" * 70)
+    print("TEST PARAMETRI AREA HENS")
+    print("=" * 70)
+
+
+    # =================================================
+    # 1. UTILITIES HENS
+    # =================================================
+
+    utilities_HEN = costruisci_utilities_HEN(
+        configurazione,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 2. PARTIZIONE HENS
+    # =================================================
+
+    intervalli_HEN = crea_partizione_HEN(
+        gcc=dati_pinch["gcc"],
+        flussi=configurazione["flussi_oggetti"],
+        delta_T_min=configurazione["delta_T_min"],
+        pinch_traslati=dati_pinch["pinch_traslati_C"],
+        delta_T_partition_max=(
+            configurazione["delta_T_partition_max"]
+        ),
+        numero_intervalli_min=(
+            configurazione["numero_intervalli_min"]
+        ),
+        utilities=utilities_HEN,
+        separa_al_pinch=separa_al_pinch_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 3. INSIEMI HENS
+    # =================================================
+
+    insiemi_HEN = costruisci_insiemi_HEN(
+        flussi=configurazione["flussi_oggetti"],
+        utilities=utilities_HEN,
+        intervalli=intervalli_HEN,
+        delta_T_min=configurazione["delta_T_min"],
+    )
+
+
+    # =================================================
+    # 4. INDICI q
+    # =================================================
+
+    indici_q = genera_indici_q_HEN(
+        insiemi_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 5. PARAMETRI AREA
+    # =================================================
+
+    parametri_area = calcola_parametri_area_HEN(
+        insiemi_HEN=insiemi_HEN,
+        indici_q=indici_q,
+        delta_T_min=configurazione["delta_T_min"],
+        debug=True,
+    )
+
+
+    # =================================================
+    # 6. CONTROLLO SPECIFICO
+    # =================================================
+
+    print("\n" + "=" * 70)
+    print("CONTROLLO REGRESSIONE AREA")
+    print("=" * 70)
+
+    trovati = 0
+
+    for indice, dati in parametri_area["dettagli"].items():
+
+        if (
+            abs(dati["delta_T_1_K"] - 20.0) < 1e-6
+            and
+            abs(dati["delta_T_2_K"] - 20.0) < 1e-6
+        ):
+
+            print(f"\nIndice: {indice}")
+
+            print(
+                f"ΔT1 = "
+                f"{dati['delta_T_1_K']:.6f} K"
+            )
+
+            print(
+                f"ΔT2 = "
+                f"{dati['delta_T_2_K']:.6f} K"
+            )
+
+            print(
+                f"ΔTML = "
+                f"{dati['delta_T_ML_K']:.6f} K"
+            )
+
+            print(
+                f"K_area = "
+                f"{dati['coeff_area_m2_per_kW']:.6f} "
+                f"m²/kW"
+            )
+
+            trovati += 1
+
+            if trovati >= 5:
+                break
+
+
+    if trovati == 0:
+
+        print(
+            "\nNessun caso con "
+            "ΔT1 = ΔT2 = 20 K trovato."
+        )
+elif modalita == "hens-technologies":
+
+    print("\n" + "=" * 70)
+    print("TEST TECNOLOGIE HENS")
+    print("=" * 70)
+
+    tecnologie_HEN = costruisci_tecnologie_HEN(
+        configurazione,
+        debug=True,
+    )
+elif modalita == "hens-tech-vars":
+
+    print("\n" + "=" * 70)
+    print("TEST VARIABILI TECNOLOGIE HENS")
+    print("=" * 70)
+
+
+    # =================================================
+    # 1. UTILITIES
+    # =================================================
+
+    utilities_HEN = costruisci_utilities_HEN(
+        configurazione,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 2. PARTIZIONE
+    # =================================================
+
+    intervalli_HEN = crea_partizione_HEN(
+        gcc=dati_pinch["gcc"],
+        flussi=configurazione[
+            "flussi_oggetti"
+        ],
+        delta_T_min=configurazione[
+            "delta_T_min"
+        ],
+        pinch_traslati=dati_pinch[
+            "pinch_traslati_C"
+        ],
+        delta_T_partition_max=(
+            configurazione[
+                "delta_T_partition_max"
+            ]
+        ),
+        numero_intervalli_min=(
+            configurazione[
+                "numero_intervalli_min"
+            ]
+        ),
+        utilities=utilities_HEN,
+        separa_al_pinch=separa_al_pinch_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 3. INSIEMI
+    # =================================================
+
+    insiemi_HEN = costruisci_insiemi_HEN(
+        flussi=configurazione[
+            "flussi_oggetti"
+        ],
+        utilities=utilities_HEN,
+        intervalli=intervalli_HEN,
+        delta_T_min=configurazione[
+            "delta_T_min"
+        ],
+    )
+
+
+    # =================================================
+    # 4. q
+    # =================================================
+
+    indici_q = genera_indici_q_HEN(
+        insiemi_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 5. ΔH
+    # =================================================
+
+    delta_H_HEN = calcola_delta_H_HEN(
+        insiemi_HEN,
+        debug=False,
+    )
+
+
+    # =================================================
+    # 6. MODELLO BILANCI
+    # =================================================
+
+    modello_HEN = crea_modello_bilanci_HEN(
+        insiemi_HEN=insiemi_HEN,
+        indici_q=indici_q,
+        delta_H_HEN=delta_H_HEN,
+        debug=False,
+    )
+    parametri_area = calcola_parametri_area_HEN(
+    insiemi_HEN=insiemi_HEN,
+    indici_q=indici_q,
+    delta_T_min=configurazione[
+        "delta_T_min"
+    ],
+    debug=False,
+)
+
+    # =================================================
+    # 7. TECNOLOGIE
+    # =================================================
+
+    tecnologie_HEN = costruisci_tecnologie_HEN(
+        configurazione,
+        debug=True,
+    )
+
+
+    # =================================================
+    # 8. VARIABILI A E U
+    # =================================================
+
+    modello_HEN = (
+        aggiungi_variabili_tecnologie_HEN(
+            modello_bilanci=modello_HEN,
+            insiemi_HEN=insiemi_HEN,
+            indici_q=indici_q,
+            tecnologie_HEN=tecnologie_HEN,
+            debug=True,
+        )
+    )
+    modello_HEN = aggiungi_vincoli_area_HEN(
+    modello_HEN=modello_HEN,
+    indici_q=indici_q,
+    parametri_area=parametri_area,
+    tecnologie_HEN=tecnologie_HEN,
+    debug=True,
+)
+    # =================================================
+# OBIETTIVO TAC
+# =================================================
+
+    modello_HEN = aggiungi_obiettivo_TAC_HEN(
+    modello_HEN=modello_HEN,
+    utilities_HEN=utilities_HEN,
+    tecnologie_HEN=tecnologie_HEN,
+    debug=True,
+    )
+    # =================================================
+    # 9. RIEPILOGO MODELLO
+    # =================================================
+
+    mdl = modello_HEN[
+        "modello"
+    ]
+
+    soluzione = mdl.solve(
+        log_output=True
+    )
+
+    print(
+        "\nNumero totale variabili DOcplex:",
+        mdl.number_of_variables,
+    )
+
+    print(
+        "Numero totale vincoli:",
+        mdl.number_of_constraints,
+    )
+    if soluzione is None:
+
+        print(
+            "\nNESSUNA SOLUZIONE "
+            "OTTIMA TROVATA."
+        )
+
+    else:
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "RISULTATO ECONOMICO HENS"
+        )
+
+        print(
+            "=" * 70
+        )
+
+
+        costo_HU = soluzione.get_value(
+            modello_HEN[
+                "costo_hot_utility"
+            ]
+        )
+
+        costo_CU = soluzione.get_value(
+            modello_HEN[
+                "costo_cold_utility"
+            ]
+        )
+
+        costo_fisso = soluzione.get_value(
+            modello_HEN[
+                "costo_fisso_HEX"
+            ]
+        )
+
+        costo_area = soluzione.get_value(
+            modello_HEN[
+                "costo_area_HEX"
+            ]
+        )
+
+        TAC = soluzione.get_value(
+            modello_HEN[
+                "TAC"
+            ]
+        )
+
+
+        print(
+            f"\nCosto hot utility: "
+            f"{costo_HU:,.2f} $/year"
+        )
+
+        print(
+            f"Costo cold utility: "
+            f"{costo_CU:,.2f} $/year"
+        )
+
+        print(
+            f"Costo fisso HEX: "
+            f"{costo_fisso:,.2f} $/year"
+        )
+
+        print(
+            f"Costo area HEX: "
+            f"{costo_area:,.2f} $/year"
+        )
+
+        print(
+            "\nTAC = "
+            f"{TAC:,.2f} $/year"
+        )
+
+        print(
+            "TAC = "
+            f"{TAC / 1000.0:.3f} k$/year"
+        )
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "UTILITIES OTTIME"
+        )
+
+        print(
+            "=" * 70
+        )
+
+
+        for codice, Q_expr in (
+            modello_HEN["Q_HU"].items()
+        ):
+
+            Q = soluzione.get_value(
+                Q_expr
+            )
+
+            print(
+                f"Hot utility {codice}: "
+                f"{Q:.3f} kW"
+            )
+
+
+        for codice, Q_expr in (
+            modello_HEN["Q_CU"].items()
+        ):
+
+            Q = soluzione.get_value(
+                Q_expr
+            )
+
+            print(
+                f"Cold utility {codice}: "
+                f"{Q:.3f} kW"
+            )
+            print(
+            "\n" + "=" * 70
+            )
+
+            print(
+                "SCAMBIATORI INSTALLATI"
+            )
+
+            print(
+                "=" * 70
+            )
+
+
+            for indice in modello_HEN[
+                "indici_A_U"
+            ]:
+
+                z, i, j, t = indice
+
+                U_val = modello_HEN[
+                    "U"
+                ][indice].solution_value
+
+                A_val = modello_HEN[
+                    "A"
+                ][indice].solution_value
+
+
+                if U_val > 1e-6:
+
+                    print(
+                        f"Zona {z} | "
+                        f"{i} -> {j} | "
+                        f"{t} | "
+                        f"U = {U_val:.0f} | "
+                        f"A = {A_val:.3f} m²"
+                    )
+            # =================================================
+            # DUTY TOTALI PER MATCH
+            # =================================================
+
+            print(
+                "\n" + "=" * 70
+            )
+
+            print(
+                "DUTY TOTALI PER MATCH"
+            )
+
+            print(
+                "=" * 70
+            )
+
+
+            duty_match = {}
+
+
+            for indice, variabile in (
+                modello_HEN["q"].items()
+            ):
+
+                z, i, m, j, n = indice
+
+                q_val = variabile.solution_value
+
+                if q_val <= 1e-8:
+                    continue
+
+                chiave = (
+                    z,
+                    i,
+                    j,
+                )
+
+                duty_match[
+                    chiave
+                ] = (
+                    duty_match.get(
+                        chiave,
+                        0.0,
+                    )
+                    +
+                    q_val
+                )
+
+
+            for (
+                z,
+                i,
+                j,
+            ), Q in sorted(
+                duty_match.items()
+            ):
+
+                print(
+                    f"Zona {z} | "
+                    f"{i} -> {j} | "
+                    f"Q = {Q:.3f} kW"
+                )
+            
 else:
 
     raise ValueError(

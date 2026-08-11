@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-
+import math
 from docplex.mp.model import Model
 
 from dataclasses import dataclass
@@ -16,61 +16,187 @@ class UtilityHEN:
     T_in: float
     T_out: float
     h_W_m2K: float
+    costo_USD_per_kW_year: float = None
     duty_variabile: bool = True
     disponibile: bool = True
+
+@dataclass
+class TecnologiaHEN:
+    codice: str
+    nome: str
+    FHEX: float
+    A_max_m2: float
+    costo_fisso_USD_per_year: float
+    costo_area_USD_per_m2_year: float
+    matches: frozenset
+    enabled: bool = True
 
 class Flusso:
     """Corrente sensibile o carico termico isotermo."""
 
     def __init__(
-        self, codice, nome, tipo, T_in, T_out, CP=None, processo=None,
-        zona=None, disponibile=True, heat_load_kW=None,
-        delta_T_min_half=None, isotermo=None, remark=None, unit=None,
+        self,
+        codice,
+        nome,
+        tipo,
+        T_in,
+        T_out,
+        CP=None,
+        processo=None,
+        zona=None,
+        disponibile=True,
+        heat_load_kW=None,
+        delta_T_min_half=None,
+        isotermo=None,
+        remark=None,
+        unit=None,
+        h_W_m2K=None,
     ):
         if tipo not in ("hot", "cold"):
-            raise ValueError(f"Tipo non valido per il flusso {codice}: {tipo}")
+            raise ValueError(
+                f"Tipo non valido per il flusso "
+                f"{codice}: {tipo}"
+            )
+
         self.codice = codice
         self.nome = nome
         self.tipo = tipo
+
         self.T_in = float(T_in)
         self.T_out = float(T_out)
-        self.heat_load_kW = None if heat_load_kW is None else float(heat_load_kW)
+
+        self.heat_load_kW = (
+            None
+            if heat_load_kW is None
+            else float(heat_load_kW)
+        )
+
         self.delta_T_min_half = (
-            None if delta_T_min_half is None else float(delta_T_min_half)
+            None
+            if delta_T_min_half is None
+            else float(delta_T_min_half)
         )
+
+        # =============================================
+        # COEFFICIENTE DI SCAMBIO PER HENS
+        # =============================================
+
+        self.h_W_m2K = (
+            None
+            if h_W_m2K is None
+            else float(h_W_m2K)
+        )
+
+        if (
+            self.h_W_m2K is not None
+            and self.h_W_m2K <= 0
+        ):
+            raise ValueError(
+                f"h_W_m2K non valido per "
+                f"{codice}: {self.h_W_m2K}"
+            )
+
+
+        # =============================================
+        # FLUSSO ISOTERMO
+        # =============================================
+
         self.isotermo = (
-            abs(self.T_in - self.T_out) <= 1e-12
-            if isotermo is None else bool(isotermo)
+            abs(
+                self.T_in
+                - self.T_out
+            ) <= 1e-12
+            if isotermo is None
+            else bool(isotermo)
         )
+
+
         self.processo = processo
         self.zona = zona
         self.disponibile = bool(disponibile)
         self.remark = remark
         self.unit = unit
 
+
+        # =============================================
+        # CALCOLO CP
+        # =============================================
+
         if self.isotermo:
+
             if self.heat_load_kW is None:
-                raise ValueError(f"Il flusso isotermo {codice} richiede heat_load_kW.")
-            self.CP = None if CP is None else float(CP)
+                raise ValueError(
+                    f"Il flusso isotermo "
+                    f"{codice} richiede "
+                    f"heat_load_kW."
+                )
+
+            self.CP = (
+                None
+                if CP is None
+                else float(CP)
+            )
+
         elif CP is not None:
+
             self.CP = float(CP)
+
         elif self.heat_load_kW is not None:
-            self.CP = self.heat_load_kW / abs(self.T_out - self.T_in)
+
+            self.CP = (
+                self.heat_load_kW
+                /
+                abs(
+                    self.T_out
+                    - self.T_in
+                )
+            )
+
         else:
-            raise ValueError(f"Il flusso {codice} richiede CP oppure heat_load_kW.")
+
+            raise ValueError(
+                f"Il flusso {codice} "
+                f"richiede CP oppure "
+                f"heat_load_kW."
+            )
+
 
     def calcola_Q(self):
+
         if self.heat_load_kW is not None:
             return self.heat_load_kW
-        return self.CP * abs(self.T_in - self.T_out)
 
-    def calcola_T_traslate(self, delta_T_min):
+        return (
+            self.CP
+            * abs(
+                self.T_in
+                - self.T_out
+            )
+        )
+
+
+    def calcola_T_traslate(
+        self,
+        delta_T_min,
+    ):
+
         delta_half = (
             self.delta_T_min_half
-            if self.delta_T_min_half is not None else delta_T_min / 2
+            if self.delta_T_min_half
+            is not None
+            else delta_T_min / 2
         )
-        traslazione = -delta_half if self.tipo == "hot" else delta_half
-        return self.T_in + traslazione, self.T_out + traslazione
+
+        traslazione = (
+            -delta_half
+            if self.tipo == "hot"
+            else delta_half
+        )
+
+        return (
+            self.T_in + traslazione,
+            self.T_out + traslazione,
+        )
 
 def carica_caso_studio(percorso_json):
     """Carica il caso studio dal file JSON."""
@@ -1524,6 +1650,7 @@ def costruisci_insiemi_HEN(
         "T_intervallo": T_intervallo,
         "correnti": correnti_per_codice,
     }
+
 def crea_partizione_HEN(
     gcc,
     flussi,
@@ -1532,6 +1659,7 @@ def crea_partizione_HEN(
     delta_T_partition_max,
     numero_intervalli_min,
     utilities=None,
+    separa_al_pinch=True,
     debug=False,
 ):
     """
@@ -1572,7 +1700,11 @@ def crea_partizione_HEN(
     # =================================================
     # 0. CONTROLLO INPUT
     # =================================================
-
+    if type(separa_al_pinch) is not bool:
+        raise ValueError(
+            "separa_al_pinch deve essere "
+            "True oppure False."
+        )
     if len(gcc) < 2:
         raise ValueError(
             "La GCC deve contenere almeno due punti."
@@ -1859,17 +1991,53 @@ def crea_partizione_HEN(
     # 6. DEFINIZIONE DELLE ZONE
     # =================================================
 
-    limiti_zone = sorted(
+    pinch_interni = sorted(
         {
-            T_max,
-            T_min,
-            *pinch_HEN,
+            T
+            for T in pinch_HEN
+            if (
+                T_min + tolleranza
+                < T
+                < T_max - tolleranza
+            )
         },
         reverse=True,
     )
 
-    zone = {}
 
+    if separa_al_pinch:
+
+        # ---------------------------------------------
+        # Modalità Pinch Design:
+        #
+        # i pinch separano sottoreti indipendenti
+        # ---------------------------------------------
+
+        limiti_zone = [
+            T_max,
+            *pinch_interni,
+            T_min,
+        ]
+
+    else:
+
+        # ---------------------------------------------
+        # Modalità economica globale:
+        #
+        # una sola heat-transfer zone
+        # ---------------------------------------------
+
+        limiti_zone = [
+            T_max,
+            T_min,
+        ]
+
+
+    # =================================================
+    # CONTENITORE DELLE ZONE
+    # =================================================
+
+    zone = {}
 
     # =================================================
     # 7. CICLO SULLE ZONE
@@ -2890,6 +3058,631 @@ def calcola_delta_H_HEN(
         "delta_H_C": delta_H_C,
     }
 
+def calcola_parametri_area_HEN(
+    insiemi_HEN,
+    indici_q,
+    delta_T_min,
+    tolleranza=1e-9,
+    debug=False,
+):
+    """
+    Calcola i parametri necessari per l'equazione dell'area HENS.
+
+    Per ogni indice ammissibile:
+
+        (z, i, m, j, n)
+
+    calcola:
+
+    - h_im della hot stream [kW/m²K]
+    - h_jn della cold stream [kW/m²K]
+    - ΔT_ML_mn [K]
+    - coefficiente area [m²/kW]
+
+    tale che:
+
+        contributo_area =
+            coeff_area[z,i,m,j,n]
+            * q[z,i,m,j,n]
+
+    e quindi, nel base model:
+
+        A[z,i,j] =
+            sum(coeff_area[k] * q[k])
+
+    per tutti gli intervalli appartenenti al match i-j.
+
+    Note
+    ----
+    Le temperature degli intervalli cold sono memorizzate
+    sulla scala HENS:
+
+        T_cold,HENS = T_cold,reale + delta_T_min
+
+    Per il calcolo del LMTD vengono quindi riportate
+    alla temperatura reale sottraendo delta_T_min.
+
+    I coefficienti h sono letti in W/m²K e convertiti
+    internamente in kW/m²K per essere coerenti con q [kW].
+    """
+
+    # =================================================
+    # 1. INPUT
+    # =================================================
+
+    T_intervallo = (
+        insiemi_HEN["T_intervallo"]
+    )
+
+    correnti = (
+        insiemi_HEN["correnti"]
+    )
+
+
+    if delta_T_min < 0:
+
+        raise ValueError(
+            "delta_T_min deve essere >= 0."
+        )
+
+
+    if len(indici_q) != len(
+        set(indici_q)
+    ):
+
+        raise ValueError(
+            "indici_q contiene duplicati."
+        )
+
+
+    # =================================================
+    # 2. FUNZIONE PER h
+    # =================================================
+
+    def leggi_h_kW_m2K(
+        codice_corrente,
+    ):
+        """
+        Legge h_W_m2K dall'oggetto corrente
+        e lo converte:
+
+            W/m²K -> kW/m²K
+        """
+
+        if codice_corrente not in correnti:
+
+            raise KeyError(
+                f"Corrente {codice_corrente} "
+                "non presente in insiemi_HEN['correnti']."
+            )
+
+        corrente = (
+            correnti[codice_corrente]
+        )
+
+
+        if not hasattr(
+            corrente,
+            "h_W_m2K",
+        ):
+
+            raise ValueError(
+                f"La corrente {codice_corrente} "
+                "non possiede l'attributo "
+                "'h_W_m2K'. "
+                "Controllare la classe Flusso "
+                "e il caricamento del JSON."
+            )
+
+
+        h_W_m2K = (
+            corrente.h_W_m2K
+        )
+
+
+        if h_W_m2K is None:
+
+            raise ValueError(
+                f"h_W_m2K non definito "
+                f"per {codice_corrente}."
+            )
+
+
+        h_W_m2K = float(
+            h_W_m2K
+        )
+
+
+        if h_W_m2K <= 0:
+
+            raise ValueError(
+                f"h_W_m2K deve essere > 0 "
+                f"per {codice_corrente}. "
+                f"Ricevuto: {h_W_m2K}"
+            )
+
+
+        # W/m²K -> kW/m²K
+        return (
+            h_W_m2K / 1000.0
+        )
+
+
+    # =================================================
+    # 3. FUNZIONE LMTD
+    # =================================================
+
+    def calcola_LMTD(
+        delta_T_1,
+        delta_T_2,
+    ):
+        """
+        Calcola la differenza media logaritmica
+        di temperatura.
+
+        ΔT_ML =
+            (ΔT1 - ΔT2)
+            / ln(ΔT1 / ΔT2)
+
+        Se ΔT1 ≈ ΔT2:
+
+            ΔT_ML = ΔT1
+        """
+
+        if (
+            delta_T_1
+            <= tolleranza
+            or
+            delta_T_2
+            <= tolleranza
+        ):
+
+            raise ValueError(
+                "LMTD non definibile con "
+                "differenze di temperatura "
+                "nulle o negative. "
+                f"ΔT1={delta_T_1:.6f}, "
+                f"ΔT2={delta_T_2:.6f}"
+            )
+
+
+        if abs(
+            delta_T_1
+            - delta_T_2
+        ) <= tolleranza:
+
+            return (
+                0.5
+                * (
+                    delta_T_1
+                    + delta_T_2
+                )
+            )
+
+
+        return (
+            (
+                delta_T_1
+                - delta_T_2
+            )
+            /
+            math.log(
+                delta_T_1
+                / delta_T_2
+            )
+        )
+
+
+    # =================================================
+    # 4. CONTENITORI
+    # =================================================
+
+    h_H = {}
+    h_C = {}
+
+    delta_T_ML = {}
+
+    coeff_area = {}
+
+    dettagli = {}
+
+
+    # =================================================
+    # 5. CICLO SUGLI INDICI q
+    # =================================================
+
+    for indice in indici_q:
+
+        (
+            z,
+            i,
+            m,
+            j,
+            n,
+        ) = indice
+
+
+        # =============================================
+        # 5.1 COEFFICIENTI DI FILM
+        # =============================================
+
+        chiave_h_hot = (
+            z,
+            i,
+            m,
+        )
+
+        chiave_h_cold = (
+            z,
+            j,
+            n,
+        )
+
+
+        if chiave_h_hot not in h_H:
+
+            h_H[
+                chiave_h_hot
+            ] = leggi_h_kW_m2K(
+                i
+            )
+
+
+        if chiave_h_cold not in h_C:
+
+            h_C[
+                chiave_h_cold
+            ] = leggi_h_kW_m2K(
+                j
+            )
+
+
+        h_im = (
+            h_H[chiave_h_hot]
+        )
+
+        h_jn = (
+            h_C[chiave_h_cold]
+        )
+
+
+        # =============================================
+        # 5.2 TEMPERATURE INTERVALLO HOT
+        # =============================================
+
+        T_hot_U = (
+            T_intervallo[
+                z,
+                m,
+            ]["T_sup"]
+        )
+
+        T_hot_L = (
+            T_intervallo[
+                z,
+                m,
+            ]["T_inf"]
+        )
+
+
+        # =============================================
+        # 5.3 TEMPERATURE INTERVALLO COLD
+        #     SULLA SCALA HENS
+        # =============================================
+
+        T_cold_U_HEN = (
+            T_intervallo[
+                z,
+                n,
+            ]["T_sup"]
+        )
+
+        T_cold_L_HEN = (
+            T_intervallo[
+                z,
+                n,
+            ]["T_inf"]
+        )
+
+
+        # =============================================
+        # 5.4 TEMPERATURE COLD REALI
+        # =============================================
+        #
+        # Scala HENS:
+        #
+        # Tcold,HEN =
+        #     Tcold,reale + delta_T_min
+        #
+        # quindi:
+        #
+        # Tcold,reale =
+        #     Tcold,HEN - delta_T_min
+        # =============================================
+
+        T_cold_U = (
+            T_cold_U_HEN
+            - delta_T_min
+        )
+
+        T_cold_L = (
+            T_cold_L_HEN
+            - delta_T_min
+        )
+
+
+        # =============================================
+        # 5.5 DIFFERENZE DI TEMPERATURA
+        #     PER CONTROCORRENTE
+        # =============================================
+        #
+        # Estremo caldo:
+        #
+        #   Thot,U - Tcold,U
+        #
+        # Estremo freddo:
+        #
+        #   Thot,L - Tcold,L
+        #
+        # =============================================
+
+        delta_T_1 = (
+            T_hot_U
+            - T_cold_U
+        )
+
+        delta_T_2 = (
+            T_hot_L
+            - T_cold_L
+        )
+
+
+        # =============================================
+        # 5.6 LMTD
+        # =============================================
+
+        DT_ML = calcola_LMTD(
+            delta_T_1,
+            delta_T_2,
+        )
+
+
+        delta_T_ML[
+            (
+                z,
+                m,
+                n,
+            )
+        ] = DT_ML
+
+
+        # =============================================
+        # 5.7 COEFFICIENTE AREA
+        # =============================================
+        #
+        # Dalla eq. [1.39]:
+        #
+        # A =
+        # Σ q *
+        #
+        #     (h_im + h_jn)
+        # -----------------------
+        # ΔTML * h_im * h_jn
+        #
+        # equivalente a:
+        #
+        # q / ΔTML *
+        # (
+        #   1/h_im + 1/h_jn
+        # )
+        #
+        # h è già espresso in kW/m²K.
+        #
+        # Risultato:
+        #
+        # coeff_area [m²/kW]
+        # =============================================
+
+        coeff = (
+            (
+                1.0 / h_im
+                +
+                1.0 / h_jn
+            )
+            /
+            DT_ML
+        )
+
+
+        coeff_area[
+            indice
+        ] = coeff
+
+
+        # =============================================
+        # 5.8 DETTAGLI DIAGNOSTICI
+        # =============================================
+
+        dettagli[
+            indice
+        ] = {
+
+            "h_hot_kW_m2K":
+                h_im,
+
+            "h_cold_kW_m2K":
+                h_jn,
+
+            "T_hot_U_C":
+                T_hot_U,
+
+            "T_hot_L_C":
+                T_hot_L,
+
+            "T_cold_U_HEN_C":
+                T_cold_U_HEN,
+
+            "T_cold_L_HEN_C":
+                T_cold_L_HEN,
+
+            "T_cold_U_reale_C":
+                T_cold_U,
+
+            "T_cold_L_reale_C":
+                T_cold_L,
+
+            "delta_T_1_K":
+                delta_T_1,
+
+            "delta_T_2_K":
+                delta_T_2,
+
+            "delta_T_ML_K":
+                DT_ML,
+
+            "coeff_area_m2_per_kW":
+                coeff,
+        }
+
+
+    # =================================================
+    # 6. DEBUG
+    # =================================================
+
+    if debug:
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "PARAMETRI AREA HENS"
+        )
+
+        print(
+            "=" * 70
+        )
+
+        print(
+            f"\nNumero indici q analizzati: "
+            f"{len(indici_q)}"
+        )
+
+        print(
+            f"Numero coefficienti area: "
+            f"{len(coeff_area)}"
+        )
+
+
+        if coeff_area:
+
+            valori_lmtd = [
+                dettagli[k][
+                    "delta_T_ML_K"
+                ]
+                for k in indici_q
+            ]
+
+            valori_coeff = [
+                coeff_area[k]
+                for k in indici_q
+            ]
+
+
+            print(
+                f"\nΔTML minimo: "
+                f"{min(valori_lmtd):.6f} K"
+            )
+
+            print(
+                f"ΔTML massimo: "
+                f"{max(valori_lmtd):.6f} K"
+            )
+
+            print(
+                f"Coeff. area minimo: "
+                f"{min(valori_coeff):.6f} "
+                f"m²/kW"
+            )
+
+            print(
+                f"Coeff. area massimo: "
+                f"{max(valori_coeff):.6f} "
+                f"m²/kW"
+            )
+
+
+        print(
+            "\nPrime 20 combinazioni:"
+        )
+
+
+        for indice in indici_q[:20]:
+
+            dati = (
+                dettagli[indice]
+            )
+
+            print(
+                f"\n{indice}"
+            )
+
+            print(
+                f"  h_hot  = "
+                f"{dati['h_hot_kW_m2K']:.6f} "
+                f"kW/m²K"
+            )
+
+            print(
+                f"  h_cold = "
+                f"{dati['h_cold_kW_m2K']:.6f} "
+                f"kW/m²K"
+            )
+
+            print(
+                f"  ΔT1 = "
+                f"{dati['delta_T_1_K']:.3f} K"
+            )
+
+            print(
+                f"  ΔT2 = "
+                f"{dati['delta_T_2_K']:.3f} K"
+            )
+
+            print(
+                f"  ΔTML = "
+                f"{dati['delta_T_ML_K']:.3f} K"
+            )
+
+            print(
+                f"  K_area = "
+                f"{dati['coeff_area_m2_per_kW']:.6f} "
+                f"m²/kW"
+            )
+
+
+    # =================================================
+    # 7. OUTPUT
+    # =================================================
+
+    return {
+
+        "h_H":
+            h_H,
+
+        "h_C":
+            h_C,
+
+        "delta_T_ML":
+            delta_T_ML,
+
+        "coeff_area":
+            coeff_area,
+
+        "dettagli":
+            dettagli,
+    }
+
 def costruisci_utilities_HEN(
     configurazione,
     debug=False,
@@ -2899,12 +3692,7 @@ def costruisci_utilities_HEN(
 
     Le utility devono essere definite nel JSON come:
 
-        "hens": {
-            "utilities": [
-                {...},
-                {...}
-            ]
-        }
+        hens -> utilities
 
     Returns
     -------
@@ -2921,21 +3709,21 @@ def costruisci_utilities_HEN(
 
     if "hens" not in configurazione:
         raise ValueError(
-            "La configurazione non contiene la sezione "
-            "'hens'. Controllare il JSON oppure "
-            "prepara_pinch()."
+            "La configurazione non contiene "
+            "la sezione 'hens'."
         )
 
     dati_hens = configurazione["hens"]
 
     if not isinstance(dati_hens, dict):
         raise ValueError(
-            "La sezione 'hens' deve essere un dizionario."
+            "La sezione 'hens' deve essere "
+            "un dizionario."
         )
 
 
     # =================================================
-    # 2. LETTURA UTILITIES HENS
+    # 2. LETTURA UTILITIES
     # =================================================
 
     if "utilities" not in dati_hens:
@@ -2948,12 +3736,13 @@ def costruisci_utilities_HEN(
 
     if not isinstance(dati_utilities, list):
         raise ValueError(
-            "'hens.utilities' deve essere una lista."
+            "'hens.utilities' deve essere "
+            "una lista."
         )
 
 
     # =================================================
-    # 3. CONTENITORE RISULTATI
+    # 3. CONTENITORI
     # =================================================
 
     utilities = {
@@ -2965,7 +3754,7 @@ def costruisci_utilities_HEN(
 
 
     # =================================================
-    # 4. COSTRUZIONE DELLE UTILITIES
+    # 4. COSTRUZIONE UTILITIES
     # =================================================
 
     for dati in dati_utilities:
@@ -3016,41 +3805,64 @@ def costruisci_utilities_HEN(
         ):
             raise ValueError(
                 f"Tipo non valido per utility "
-                f"{dati['codice']}: {tipo}. "
-                "Valori ammessi: 'hot', 'cold'."
+                f"{dati['codice']}: {tipo}"
             )
 
 
         # ---------------------------------------------
-        # Creazione oggetto UtilityHEN
+        # Costo utility
+        # ---------------------------------------------
+
+        costo_raw = dati.get(
+            "costo_USD_per_kW_year"
+        )
+
+        costo = (
+            None
+            if costo_raw is None
+            else float(costo_raw)
+        )
+
+
+        # ---------------------------------------------
+        # Creazione UtilityHEN
         # ---------------------------------------------
 
         utility = UtilityHEN(
             codice=str(
                 dati["codice"]
             ),
+
             nome=str(
                 dati.get(
                     "nome",
                     dati["codice"],
                 )
             ),
+
             tipo=tipo,
+
             T_in=float(
                 dati["T_in"]
             ),
+
             T_out=float(
                 dati["T_out"]
             ),
+
             h_W_m2K=float(
                 dati["h_W_m2K"]
             ),
+
+            costo_USD_per_kW_year=costo,
+
             duty_variabile=bool(
                 dati.get(
                     "duty_variabile",
                     True,
                 )
             ),
+
             disponibile=bool(
                 dati.get(
                     "disponibile",
@@ -3061,10 +3873,9 @@ def costruisci_utilities_HEN(
 
 
         # =================================================
-        # 5. CONTROLLI DI COERENZA
+        # 5. CONTROLLI
         # =================================================
 
-        # Codici duplicati
         if utility.codice in codici:
 
             raise ValueError(
@@ -3078,7 +3889,7 @@ def costruisci_utilities_HEN(
 
 
         # ---------------------------------------------
-        # Coerenza temperatura HOT
+        # Temperature
         # ---------------------------------------------
 
         if (
@@ -3090,16 +3901,9 @@ def costruisci_utilities_HEN(
             raise ValueError(
                 f"La hot utility "
                 f"{utility.codice} deve avere "
-                f"T_in > T_out. "
-                f"Ricevuto: "
-                f"{utility.T_in} -> "
-                f"{utility.T_out} °C"
+                f"T_in > T_out."
             )
 
-
-        # ---------------------------------------------
-        # Coerenza temperatura COLD
-        # ---------------------------------------------
 
         if (
             utility.tipo == "cold"
@@ -3110,15 +3914,12 @@ def costruisci_utilities_HEN(
             raise ValueError(
                 f"La cold utility "
                 f"{utility.codice} deve avere "
-                f"T_out > T_in. "
-                f"Ricevuto: "
-                f"{utility.T_in} -> "
-                f"{utility.T_out} °C"
+                f"T_out > T_in."
             )
 
 
         # ---------------------------------------------
-        # Coefficiente di scambio
+        # Coefficiente di film
         # ---------------------------------------------
 
         if utility.h_W_m2K <= 0:
@@ -3131,24 +3932,38 @@ def costruisci_utilities_HEN(
 
 
         # ---------------------------------------------
-        # Utility non disponibile
+        # Costo
+        # ---------------------------------------------
+
+        if (
+            utility.costo_USD_per_kW_year
+            is not None
+            and
+            utility.costo_USD_per_kW_year < 0
+        ):
+
+            raise ValueError(
+                f"Costo utility negativo per "
+                f"{utility.codice}: "
+                f"{utility.costo_USD_per_kW_year}"
+            )
+
+
+        # ---------------------------------------------
+        # Utility disabilitata
         # ---------------------------------------------
 
         if not utility.disponibile:
 
             if debug:
                 print(
-                    f"Utility HENS "
+                    f"Utility "
                     f"{utility.codice} ignorata: "
                     f"disponibile=False"
                 )
 
             continue
 
-
-        # ---------------------------------------------
-        # Inserimento
-        # ---------------------------------------------
 
         utilities[
             utility.tipo
@@ -3158,55 +3973,2570 @@ def costruisci_utilities_HEN(
 
 
     # =================================================
-    # 6. STAMPA DIAGNOSTICA
+    # 6. DEBUG
     # =================================================
 
     if debug:
 
         print(
-            "\n"
-            + "=" * 55
+            "\n" + "=" * 60
         )
 
         print(
-            "UTILITY HENS COSTRUITE"
+            "UTILITY HENS"
         )
 
         print(
-            "=" * 55
+            "=" * 60
         )
 
-        for utility in utilities["hot"]:
 
-            print(
-                f"{utility.codice} | "
-                f"HOT | "
-                f"{utility.T_in:.2f} -> "
-                f"{utility.T_out:.2f} °C | "
-                f"h = "
-                f"{utility.h_W_m2K:.2f} W/m²K"
-            )
+        for tipo in (
+            "hot",
+            "cold",
+        ):
 
-        for utility in utilities["cold"]:
+            for utility in utilities[tipo]:
 
-            print(
-                f"{utility.codice} | "
-                f"COLD | "
-                f"{utility.T_in:.2f} -> "
-                f"{utility.T_out:.2f} °C | "
-                f"h = "
-                f"{utility.h_W_m2K:.2f} W/m²K"
-            )
+                costo_testo = (
+                    "non definito"
+                    if utility.costo_USD_per_kW_year
+                    is None
+                    else
+                    (
+                        f"{utility.costo_USD_per_kW_year:.2f} "
+                        f"$/kW/year"
+                    )
+                )
 
-        print(
-            f"\nNumero hot utilities: "
-            f"{len(utilities['hot'])}"
-        )
-
-        print(
-            f"Numero cold utilities: "
-            f"{len(utilities['cold'])}"
-        )
+                print(
+                    f"{utility.codice} | "
+                    f"{utility.tipo.upper()} | "
+                    f"{utility.T_in:.2f} -> "
+                    f"{utility.T_out:.2f} °C | "
+                    f"h = "
+                    f"{utility.h_W_m2K:.2f} W/m²K | "
+                    f"costo = {costo_testo}"
+                )
 
 
     return utilities
+
+def crea_modello_bilanci_HEN(
+    insiemi_HEN,
+    indici_q,
+    delta_H_HEN,
+    nome_modello="HENS_bilanci",
+    debug=False,
+):
+    """
+    Costruisce il primo modello DOcplex della HENS,
+    contenente solamente:
+
+    - variabili q[z,i,m,j,n];
+    - variabili F_H delle hot utilities;
+    - variabili F_C delle cold utilities;
+    - bilanci energetici hot process;
+    - bilanci energetici cold process;
+    - bilanci energetici hot utilities;
+    - bilanci energetici cold utilities.
+
+    Non vengono ancora considerate:
+    - area degli scambiatori;
+    - numero di scambiatori;
+    - tecnologie HEX;
+    - costi;
+    - non-isothermal mixing;
+    - flexible streams.
+
+    Parameters
+    ----------
+    insiemi_HEN : dict
+        Insiemi prodotti da costruisci_insiemi_HEN().
+
+    indici_q : list
+        Tuple ammissibili:
+            (z, i, m, j, n)
+
+    delta_H_HEN : dict
+        Output di calcola_delta_H_HEN():
+
+            {
+                "delta_H_H": {...},
+                "delta_H_C": {...},
+            }
+
+    nome_modello : str
+        Nome del modello DOcplex.
+
+    debug : bool
+        Se True stampa informazioni diagnostiche.
+
+    Returns
+    -------
+    dict
+        Contiene modello, variabili ed espressioni
+        utili per la successiva risoluzione.
+    """
+
+    # =================================================
+    # 1. LETTURA DEGLI INSIEMI
+    # =================================================
+
+    Z = insiemi_HEN["Z"]
+
+    H = insiemi_HEN["H"]
+    C = insiemi_HEN["C"]
+
+    HU = insiemi_HEN["HU"]
+    CU = insiemi_HEN["CU"]
+
+    M_i = insiemi_HEN["M_i"]
+    N_j = insiemi_HEN["N_j"]
+
+    NI_H = set(
+        insiemi_HEN.get(
+            "NI_H",
+            [],
+        )
+    )
+
+    NI_C = set(
+        insiemi_HEN.get(
+            "NI_C",
+            [],
+        )
+    )
+
+    T_intervallo = (
+        insiemi_HEN["T_intervallo"]
+    )
+
+    delta_H_H = (
+        delta_H_HEN["delta_H_H"]
+    )
+
+    delta_H_C = (
+        delta_H_HEN["delta_H_C"]
+    )
+
+
+    # =================================================
+    # 2. CONTROLLO VERSIONE DEL MODELLO
+    # =================================================
+    #
+    # Non abbiamo ancora implementato le equazioni
+    # necessarie al non-isothermal mixing.
+    # È meglio fermarsi esplicitamente invece di
+    # costruire un modello incompleto.
+    # =================================================
+
+    if NI_H or NI_C:
+
+        raise NotImplementedError(
+            "crea_modello_bilanci_HEN() "
+            "non gestisce ancora il "
+            "non-isothermal mixing. "
+            f"NI_H={NI_H}, NI_C={NI_C}"
+        )
+
+
+    # =================================================
+    # 3. CONTROLLO INDICI q
+    # =================================================
+
+    if len(indici_q) != len(
+        set(indici_q)
+    ):
+
+        raise ValueError(
+            "indici_q contiene duplicati."
+        )
+
+
+    # =================================================
+    # 4. CREAZIONE MODELLO DOCPLEX
+    # =================================================
+
+    mdl = Model(
+        name=nome_modello
+    )
+
+
+    # =================================================
+    # 5. VARIABILI q
+    # =================================================
+    #
+    # q[z,i,m,j,n] >= 0
+    #
+    # Calore trasferito:
+    #
+    # hot stream i, intervallo m
+    #               ↓
+    # cold stream j, intervallo n
+    #
+    # [kW]
+    # =================================================
+
+    q = mdl.continuous_var_dict(
+        indici_q,
+        lb=0,
+        name="q",
+    )
+
+
+    # =================================================
+    # 6. INDICI DELLE UTILITIES
+    # =================================================
+
+    codici_HU = sorted(
+        {
+            i
+            for z in Z
+            for i in HU[z]
+        }
+    )
+
+    codici_CU = sorted(
+        {
+            j
+            for z in Z
+            for j in CU[z]
+        }
+    )
+
+
+    # =================================================
+    # 7. VARIABILI F DELLE UTILITIES
+    # =================================================
+    #
+    # F_H e F_C hanno dimensionalmente:
+    #
+    #     kW/K
+    #
+    # perché:
+    #
+    #     Q = F * ΔT
+    #
+    # =================================================
+
+    F_H = mdl.continuous_var_dict(
+        codici_HU,
+        lb=0,
+        name="F_H",
+    )
+
+    F_C = mdl.continuous_var_dict(
+        codici_CU,
+        lb=0,
+        name="F_C",
+    )
+
+
+    # =================================================
+    # 8. PREPROCESSING DEGLI INDICI q
+    # =================================================
+    #
+    # Evitiamo di scorrere tutte le variabili q
+    # ogni volta che costruiamo un bilancio.
+    #
+    # q_da_hot[z,i,m]:
+    #     tutte le q che partono da (z,i,m)
+    #
+    # q_a_cold[z,j,n]:
+    #     tutte le q che arrivano a (z,j,n)
+    # =================================================
+
+    q_da_hot = {}
+    q_a_cold = {}
+
+    for indice in indici_q:
+
+        z, i, m, j, n = indice
+
+        q_da_hot.setdefault(
+            (z, i, m),
+            [],
+        ).append(
+            indice
+        )
+
+        q_a_cold.setdefault(
+            (z, j, n),
+            [],
+        ).append(
+            indice
+        )
+
+
+    # =================================================
+    # 9. CONTENITORI DEI VINCOLI
+    # =================================================
+
+    vincoli_hot_process = []
+    vincoli_cold_process = []
+
+    vincoli_hot_utility = []
+    vincoli_cold_utility = []
+
+
+    # =================================================
+    # 10. BILANCI HOT
+    # =================================================
+
+    for z in Z:
+
+        for i in H[z]:
+
+            # =========================================
+            # HOT UTILITY
+            # =========================================
+            #
+            # F_i^H (T_m^U - T_m^L)
+            #
+            #       =
+            #
+            # Σ_j Σ_n q[z,i,m,j,n]
+            #
+            # =========================================
+
+            if i in HU[z]:
+
+                for m in M_i[z, i]:
+
+                    T_sup = (
+                        T_intervallo[
+                            z,
+                            m,
+                        ]["T_sup"]
+                    )
+
+                    T_inf = (
+                        T_intervallo[
+                            z,
+                            m,
+                        ]["T_inf"]
+                    )
+
+                    delta_T_m = (
+                        T_sup - T_inf
+                    )
+
+                    chiavi_q = (
+                        q_da_hot.get(
+                            (z, i, m),
+                            [],
+                        )
+                    )
+
+                    Q_uscente = mdl.sum(
+                        q[k]
+                        for k in chiavi_q
+                    )
+
+                    vincolo = mdl.add_constraint(
+                        F_H[i]
+                        * delta_T_m
+                        ==
+                        Q_uscente,
+                        ctname=(
+                            f"bil_HU_"
+                            f"z{z}_"
+                            f"{i}_"
+                            f"m{m}"
+                        ),
+                    )
+
+                    vincoli_hot_utility.append(
+                        vincolo
+                    )
+
+
+            # =========================================
+            # HOT PROCESS STREAM
+            # =========================================
+            #
+            # ΔH[z,i,m]
+            #
+            #       =
+            #
+            # Σ_j Σ_n q[z,i,m,j,n]
+            #
+            # =========================================
+
+            else:
+
+                for m in M_i[z, i]:
+
+                    chiave_delta_H = (
+                        z,
+                        i,
+                        m,
+                    )
+
+                    if (
+                        chiave_delta_H
+                        not in delta_H_H
+                    ):
+
+                        raise KeyError(
+                            "ΔH hot mancante per "
+                            f"{chiave_delta_H}"
+                        )
+
+                    valore_delta_H = (
+                        delta_H_H[
+                            chiave_delta_H
+                        ]
+                    )
+
+                    chiavi_q = (
+                        q_da_hot.get(
+                            chiave_delta_H,
+                            [],
+                        )
+                    )
+
+                    # Una process stream con ΔH > 0
+                    # deve avere almeno un trasferimento
+                    # potenzialmente disponibile.
+                    if (
+                        valore_delta_H > 1e-12
+                        and not chiavi_q
+                    ):
+
+                        raise ValueError(
+                            "Nessun indice q disponibile "
+                            "per il bilancio hot "
+                            f"{chiave_delta_H}."
+                        )
+
+                    Q_uscente = mdl.sum(
+                        q[k]
+                        for k in chiavi_q
+                    )
+
+                    vincolo = mdl.add_constraint(
+                        Q_uscente
+                        ==
+                        valore_delta_H,
+                        ctname=(
+                            f"bil_HP_"
+                            f"z{z}_"
+                            f"{i}_"
+                            f"m{m}"
+                        ),
+                    )
+
+                    vincoli_hot_process.append(
+                        vincolo
+                    )
+
+
+    # =================================================
+    # 11. BILANCI COLD
+    # =================================================
+
+    for z in Z:
+
+        for j in C[z]:
+
+            # =========================================
+            # COLD UTILITY
+            # =========================================
+            #
+            # F_j^C (T_n^U - T_n^L)
+            #
+            #       =
+            #
+            # Σ_i Σ_m q[z,i,m,j,n]
+            #
+            # =========================================
+
+            if j in CU[z]:
+
+                for n in N_j[z, j]:
+
+                    T_sup = (
+                        T_intervallo[
+                            z,
+                            n,
+                        ]["T_sup"]
+                    )
+
+                    T_inf = (
+                        T_intervallo[
+                            z,
+                            n,
+                        ]["T_inf"]
+                    )
+
+                    delta_T_n = (
+                        T_sup - T_inf
+                    )
+
+                    chiavi_q = (
+                        q_a_cold.get(
+                            (z, j, n),
+                            [],
+                        )
+                    )
+
+                    Q_entrante = mdl.sum(
+                        q[k]
+                        for k in chiavi_q
+                    )
+
+                    vincolo = mdl.add_constraint(
+                        F_C[j]
+                        * delta_T_n
+                        ==
+                        Q_entrante,
+                        ctname=(
+                            f"bil_CU_"
+                            f"z{z}_"
+                            f"{j}_"
+                            f"n{n}"
+                        ),
+                    )
+
+                    vincoli_cold_utility.append(
+                        vincolo
+                    )
+
+
+            # =========================================
+            # COLD PROCESS STREAM
+            # =========================================
+            #
+            # ΔH[z,j,n]
+            #
+            #       =
+            #
+            # Σ_i Σ_m q[z,i,m,j,n]
+            #
+            # =========================================
+
+            else:
+
+                for n in N_j[z, j]:
+
+                    chiave_delta_H = (
+                        z,
+                        j,
+                        n,
+                    )
+
+                    if (
+                        chiave_delta_H
+                        not in delta_H_C
+                    ):
+
+                        raise KeyError(
+                            "ΔH cold mancante per "
+                            f"{chiave_delta_H}"
+                        )
+
+                    valore_delta_H = (
+                        delta_H_C[
+                            chiave_delta_H
+                        ]
+                    )
+
+                    chiavi_q = (
+                        q_a_cold.get(
+                            chiave_delta_H,
+                            [],
+                        )
+                    )
+
+                    if (
+                        valore_delta_H > 1e-12
+                        and not chiavi_q
+                    ):
+
+                        raise ValueError(
+                            "Nessun indice q disponibile "
+                            "per il bilancio cold "
+                            f"{chiave_delta_H}."
+                        )
+
+                    Q_entrante = mdl.sum(
+                        q[k]
+                        for k in chiavi_q
+                    )
+
+                    vincolo = mdl.add_constraint(
+                        Q_entrante
+                        ==
+                        valore_delta_H,
+                        ctname=(
+                            f"bil_CP_"
+                            f"z{z}_"
+                            f"{j}_"
+                            f"n{n}"
+                        ),
+                    )
+
+                    vincoli_cold_process.append(
+                        vincolo
+                    )
+
+
+    # =================================================
+    # 12. ΔT TOTALE DELLE UTILITIES
+    # =================================================
+    #
+    # Serve per ricostruire successivamente:
+    #
+    # Q_HU = F_H * ΔT_tot
+    # Q_CU = F_C * ΔT_tot
+    #
+    # =================================================
+
+    delta_T_HU = {
+        i: 0.0
+        for i in codici_HU
+    }
+
+    delta_T_CU = {
+        j: 0.0
+        for j in codici_CU
+    }
+
+
+    for z in Z:
+
+        for i in HU[z]:
+
+            for m in M_i[z, i]:
+
+                T_sup = (
+                    T_intervallo[
+                        z,
+                        m,
+                    ]["T_sup"]
+                )
+
+                T_inf = (
+                    T_intervallo[
+                        z,
+                        m,
+                    ]["T_inf"]
+                )
+
+                delta_T_HU[i] += (
+                    T_sup - T_inf
+                )
+
+
+        for j in CU[z]:
+
+            for n in N_j[z, j]:
+
+                T_sup = (
+                    T_intervallo[
+                        z,
+                        n,
+                    ]["T_sup"]
+                )
+
+                T_inf = (
+                    T_intervallo[
+                        z,
+                        n,
+                    ]["T_inf"]
+                )
+
+                delta_T_CU[j] += (
+                    T_sup - T_inf
+                )
+
+
+    # =================================================
+    # 13. ESPRESSIONI DEI DUTY DELLE UTILITIES
+    # =================================================
+
+    Q_HU = {
+        i: (
+            F_H[i]
+            * delta_T_HU[i]
+        )
+        for i in codici_HU
+    }
+
+    Q_CU = {
+        j: (
+            F_C[j]
+            * delta_T_CU[j]
+        )
+        for j in codici_CU
+    }
+
+
+    # =================================================
+    # 14. OBIETTIVO TEMPORANEO
+    # =================================================
+    #
+    # In questa fase cerchiamo solamente
+    # una soluzione energeticamente fattibile.
+    #
+    # La vera funzione obiettivo TAC verrà inserita
+    # successivamente.
+    # =================================================
+
+    mdl.minimize(0)
+
+
+    # =================================================
+    # 15. DEBUG
+    # =================================================
+
+    if debug:
+
+        print("\n" + "=" * 65)
+        print("MODELLO DOCPLEX - BILANCI HENS")
+        print("=" * 65)
+
+        print(
+            f"Variabili q: "
+            f"{len(q)}"
+        )
+
+        print(
+            f"Variabili F_H: "
+            f"{len(F_H)}"
+        )
+
+        print(
+            f"Variabili F_C: "
+            f"{len(F_C)}"
+        )
+
+        print(
+            "\nVincoli hot process:",
+            len(
+                vincoli_hot_process
+            ),
+        )
+
+        print(
+            "Vincoli cold process:",
+            len(
+                vincoli_cold_process
+            ),
+        )
+
+        print(
+            "Vincoli hot utility:",
+            len(
+                vincoli_hot_utility
+            ),
+        )
+
+        print(
+            "Vincoli cold utility:",
+            len(
+                vincoli_cold_utility
+            ),
+        )
+
+        print(
+            "\nTotale vincoli:",
+            mdl.number_of_constraints,
+        )
+
+        print("\nUtilities:")
+
+        for i in codici_HU:
+
+            print(
+                f"  {i}: "
+                f"ΔT totale = "
+                f"{delta_T_HU[i]:.3f} K"
+            )
+
+        for j in codici_CU:
+
+            print(
+                f"  {j}: "
+                f"ΔT totale = "
+                f"{delta_T_CU[j]:.3f} K"
+            )
+
+
+    return {
+        "modello": mdl,
+
+        "q": q,
+
+        "F_H": F_H,
+        "F_C": F_C,
+
+        "Q_HU": Q_HU,
+        "Q_CU": Q_CU,
+
+        "delta_T_HU": delta_T_HU,
+        "delta_T_CU": delta_T_CU,
+
+        "vincoli": {
+            "hot_process":
+                vincoli_hot_process,
+
+            "cold_process":
+                vincoli_cold_process,
+
+            "hot_utility":
+                vincoli_hot_utility,
+
+            "cold_utility":
+                vincoli_cold_utility,
+        },
+    }
+
+def aggiungi_variabili_tecnologie_HEN(
+    modello_bilanci,
+    insiemi_HEN,
+    indici_q,
+    tecnologie_HEN,
+    debug=False,
+):
+    """
+    Aggiunge al modello HENS le variabili associate
+    agli scambiatori e alle tecnologie:
+
+        A[z,i,j,t] >= 0
+        U[z,i,j,t] intera >= 0
+
+    Le variabili vengono create solamente quando:
+
+    1. il match (i,j) è termodinamicamente possibile
+       nella zona z, cioè esiste almeno un indice q;
+
+    2. il match (i,j) è consentito dalla tecnologia t,
+       cioè (i,j) appartiene a P_t.
+
+    Non vengono ancora aggiunti:
+    - equazione dell'area;
+    - vincolo A <= Amax * U;
+    - funzione obiettivo TAC.
+
+    Parameters
+    ----------
+    modello_bilanci : dict
+        Output di crea_modello_bilanci_HEN().
+
+    insiemi_HEN : dict
+        Insiemi HENS.
+
+    indici_q : list
+        Indici delle variabili q:
+            (z,i,m,j,n)
+
+    tecnologie_HEN : dict
+        Output di costruisci_tecnologie_HEN().
+
+    debug : bool
+        Attiva output diagnostico.
+
+    Returns
+    -------
+    dict
+        Dizionario modello_bilanci aggiornato con:
+
+        - indici_A_U
+        - A
+        - U
+    """
+
+    # =================================================
+    # 1. MODELLO DOCPLEX
+    # =================================================
+
+    mdl = modello_bilanci[
+        "modello"
+    ]
+
+
+    # =================================================
+    # 2. TECNOLOGIE
+    # =================================================
+
+    T = tecnologie_HEN[
+        "T"
+    ]
+
+    P_t = tecnologie_HEN[
+        "P_t"
+    ]
+
+
+    # =================================================
+    # 3. MATCH EFFETTIVAMENTE POSSIBILI PER ZONA
+    # =================================================
+    #
+    # Se esiste almeno una:
+    #
+    # q[z,i,m,j,n]
+    #
+    # allora il match (i,j) può essere utilizzato
+    # nella zona z.
+    # =================================================
+
+    coppie_zona = {
+        (
+            z,
+            i,
+            j,
+        )
+        for (
+            z,
+            i,
+            m,
+            j,
+            n,
+        )
+        in indici_q
+    }
+
+
+    # =================================================
+    # 4. COSTRUZIONE INDICI (z,i,j,t)
+    # =================================================
+
+    indici_A_U = []
+
+
+    for (
+        z,
+        i,
+        j,
+    ) in sorted(
+        coppie_zona
+    ):
+
+        for t in T:
+
+            # La tecnologia t deve poter essere
+            # utilizzata sul match i-j.
+
+            if (
+                i,
+                j,
+            ) not in P_t[t]:
+
+                continue
+
+
+            indici_A_U.append(
+                (
+                    z,
+                    i,
+                    j,
+                    t,
+                )
+            )
+
+
+    # =================================================
+    # 5. CONTROLLO DUPLICATI
+    # =================================================
+
+    if len(indici_A_U) != len(
+        set(indici_A_U)
+    ):
+
+        raise ValueError(
+            "Sono stati generati indici "
+            "A/U duplicati."
+        )
+
+
+    # =================================================
+    # 6. VARIABILI DI AREA
+    # =================================================
+    #
+    # A[z,i,j,t] [m²]
+    #
+    # Area totale assegnata alla tecnologia t
+    # per il match i-j nella zona z.
+    # =================================================
+
+    A = mdl.continuous_var_dict(
+        indici_A_U,
+        lb=0,
+        name="A",
+    )
+
+
+    # =================================================
+    # 7. VARIABILI INTERE U
+    # =================================================
+    #
+    # U[z,i,j,t]
+    #
+    # Numero di exchanger/shells della tecnologia t
+    # utilizzati per il match i-j nella zona z.
+    #
+    # Il PDF utilizza una variabile intera,
+    # non semplicemente binaria.
+    # =================================================
+
+    U = mdl.integer_var_dict(
+        indici_A_U,
+        lb=0,
+        name="U",
+    )
+
+
+    # =================================================
+    # 8. DEBUG
+    # =================================================
+
+    if debug:
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "VARIABILI TECNOLOGIE HENS"
+        )
+
+        print(
+            "=" * 70
+        )
+
+        print(
+            f"\nNumero coppie zona-match "
+            f"termodinamicamente possibili: "
+            f"{len(coppie_zona)}"
+        )
+
+        print(
+            f"Numero variabili A: "
+            f"{len(A)}"
+        )
+
+        print(
+            f"Numero variabili U: "
+            f"{len(U)}"
+        )
+
+
+        print(
+            "\nIndici A/U:"
+        )
+
+
+        for indice in indici_A_U:
+
+            (
+                z,
+                i,
+                j,
+                t,
+            ) = indice
+
+            print(
+                f"  Zona {z} | "
+                f"{i} -> {j} | "
+                f"{t}"
+            )
+
+
+    # =================================================
+    # 9. AGGIORNAMENTO OUTPUT MODELLO
+    # =================================================
+
+    modello_bilanci[
+        "indici_A_U"
+    ] = indici_A_U
+
+    modello_bilanci[
+        "A"
+    ] = A
+
+    modello_bilanci[
+        "U"
+    ] = U
+
+    modello_bilanci[
+        "tecnologie_HEN"
+    ] = tecnologie_HEN
+
+
+    return modello_bilanci
+def aggiungi_vincoli_area_HEN(
+    modello_HEN,
+    indici_q,
+    parametri_area,
+    tecnologie_HEN,
+    debug=False,
+):
+    """
+    Aggiunge al modello HENS:
+
+    1. equazione dell'area con tecnologie multiple:
+
+           sum_t A[z,i,j,t] * FHEX[t]
+               =
+           sum_m,n K_area[z,i,m,j,n]
+                     * q[z,i,m,j,n]
+
+    2. vincolo di capacità:
+
+           A[z,i,j,t]
+               <=
+           A_max[t] * U[z,i,j,t]
+
+    Le equazioni corrispondono alle [1.43]-[1.46]
+    del modello HENS esteso.
+
+    Parameters
+    ----------
+    modello_HEN : dict
+        Modello restituito da
+        aggiungi_variabili_tecnologie_HEN().
+
+    indici_q : list
+        Indici q:
+            (z, i, m, j, n)
+
+    parametri_area : dict
+        Output di calcola_parametri_area_HEN().
+
+    tecnologie_HEN : dict
+        Output di costruisci_tecnologie_HEN().
+
+    debug : bool
+        Attiva output diagnostico.
+
+    Returns
+    -------
+    dict
+        modello_HEN aggiornato con i vincoli area.
+    """
+
+    # =================================================
+    # 1. RECUPERO MODELLO E VARIABILI
+    # =================================================
+
+    mdl = modello_HEN[
+        "modello"
+    ]
+
+    q = modello_HEN[
+        "q"
+    ]
+
+    A = modello_HEN[
+        "A"
+    ]
+
+    U = modello_HEN[
+        "U"
+    ]
+
+    indici_A_U = modello_HEN[
+        "indici_A_U"
+    ]
+
+
+    # =================================================
+    # 2. PARAMETRI
+    # =================================================
+
+    coeff_area = parametri_area[
+        "coeff_area"
+    ]
+
+    tecnologie = tecnologie_HEN[
+        "tecnologie"
+    ]
+
+
+    # =================================================
+    # 3. CONTROLLO COEFFICIENTI AREA
+    # =================================================
+
+    mancanti = [
+        indice
+        for indice in indici_q
+        if indice not in coeff_area
+    ]
+
+    if mancanti:
+
+        raise KeyError(
+            "Mancano coefficienti area "
+            "per alcuni indici q. "
+            f"Primo indice mancante: "
+            f"{mancanti[0]}"
+        )
+
+
+    # =================================================
+    # 4. RAGGRUPPAMENTO q PER MATCH (z,i,j)
+    # =================================================
+    #
+    # Da:
+    #
+    #   q[z,i,m,j,n]
+    #
+    # costruiamo:
+    #
+    #   q_match[z,i,j]
+    #
+    # che contiene tutti gli intervalli m,n
+    # appartenenti allo stesso match.
+    # =================================================
+
+    q_match = {}
+
+    for indice in indici_q:
+
+        (
+            z,
+            i,
+            m,
+            j,
+            n,
+        ) = indice
+
+        chiave_match = (
+            z,
+            i,
+            j,
+        )
+
+        q_match.setdefault(
+            chiave_match,
+            [],
+        ).append(
+            indice
+        )
+
+
+    # =================================================
+    # 5. RAGGRUPPAMENTO TECNOLOGIE PER MATCH
+    # =================================================
+    #
+    # Per ciascun:
+    #
+    #   (z,i,j)
+    #
+    # troviamo tutti gli indici:
+    #
+    #   (z,i,j,t)
+    #
+    # effettivamente creati.
+    # =================================================
+
+    tecnologie_match = {}
+
+    for indice in indici_A_U:
+
+        (
+            z,
+            i,
+            j,
+            t,
+        ) = indice
+
+        chiave_match = (
+            z,
+            i,
+            j,
+        )
+
+        tecnologie_match.setdefault(
+            chiave_match,
+            [],
+        ).append(
+            indice
+        )
+
+
+    # =================================================
+    # 6. CONTENITORI VINCOLI
+    # =================================================
+
+    vincoli_equazione_area = []
+    vincoli_Amax = []
+
+
+    # =================================================
+    # 7. EQUAZIONE AREA [1.43]
+    # =================================================
+    #
+    # sum_t A[z,i,j,t] * FHEX[t]
+    #
+    # =
+    #
+    # sum_m,n
+    #     coeff_area[z,i,m,j,n]
+    #     * q[z,i,m,j,n]
+    #
+    # =================================================
+
+    for chiave_match in sorted(
+        q_match
+    ):
+
+        (
+            z,
+            i,
+            j,
+        ) = chiave_match
+
+
+        # ---------------------------------------------
+        # Tecnologie disponibili per il match
+        # ---------------------------------------------
+
+        indici_tecnologie = (
+            tecnologie_match.get(
+                chiave_match,
+                [],
+            )
+        )
+
+
+        if not indici_tecnologie:
+
+            raise ValueError(
+                "Il match "
+                f"{chiave_match} "
+                "possiede variabili q ma "
+                "nessuna tecnologia HEX disponibile."
+            )
+
+
+        # ---------------------------------------------
+        # Lato termico:
+        #
+        # Σ K_area * q
+        # ---------------------------------------------
+
+        area_equivalente = mdl.sum(
+            coeff_area[indice]
+            * q[indice]
+            for indice
+            in q_match[
+                chiave_match
+            ]
+        )
+
+
+        # ---------------------------------------------
+        # Lato tecnologie:
+        #
+        # Σ A * FHEX
+        # ---------------------------------------------
+
+        area_tecnologie = mdl.sum(
+            A[indice_A]
+            * tecnologie[
+                indice_A[3]
+            ].FHEX
+            for indice_A
+            in indici_tecnologie
+        )
+
+
+        # ---------------------------------------------
+        # Vincolo
+        # ---------------------------------------------
+
+        vincolo = mdl.add_constraint(
+            area_tecnologie
+            ==
+            area_equivalente,
+
+            ctname=(
+                f"area_"
+                f"z{z}_"
+                f"{i}_"
+                f"{j}"
+            ),
+        )
+
+
+        vincoli_equazione_area.append(
+            vincolo
+        )
+
+
+    # =================================================
+    # 8. VINCOLO AREA MASSIMA [1.46]
+    # =================================================
+    #
+    # A[z,i,j,t]
+    #
+    # <=
+    #
+    # Amax[t] * U[z,i,j,t]
+    #
+    # =================================================
+
+    for indice in indici_A_U:
+
+        (
+            z,
+            i,
+            j,
+            t,
+        ) = indice
+
+        tecnologia = tecnologie[
+            t
+        ]
+
+        A_max = (
+            tecnologia.A_max_m2
+        )
+
+
+        vincolo = mdl.add_constraint(
+            A[indice]
+            <=
+            A_max
+            * U[indice],
+
+            ctname=(
+                f"Amax_"
+                f"z{z}_"
+                f"{i}_"
+                f"{j}_"
+                f"{t}"
+            ),
+        )
+
+
+        vincoli_Amax.append(
+            vincolo
+        )
+
+
+    # =================================================
+    # 9. NOTA SU [1.44] E [1.45]
+    # =================================================
+    #
+    # [1.44]:
+    # A = 0 per tecnologie non consentite.
+    #
+    # Non serve un vincolo esplicito perché non
+    # creiamo proprio A[z,i,j,t] quando
+    # (i,j) non appartiene a P_t.
+    #
+    # [1.45]:
+    # A >= 0 per tecnologie consentite.
+    #
+    # È già garantito da:
+    #
+    # continuous_var_dict(..., lb=0)
+    #
+    # =================================================
+
+
+    # =================================================
+    # 10. SALVATAGGIO NEL MODELLO
+    # =================================================
+
+    modello_HEN[
+        "vincoli_area"
+    ] = {
+
+        "equazione_area":
+            vincoli_equazione_area,
+
+        "Amax":
+            vincoli_Amax,
+    }
+
+
+    # =================================================
+    # 11. DEBUG
+    # =================================================
+
+    if debug:
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "VINCOLI AREA HENS"
+        )
+
+        print(
+            "=" * 70
+        )
+
+
+        print(
+            "\nEquazioni area [1.43]:",
+            len(
+                vincoli_equazione_area
+            ),
+        )
+
+
+        print(
+            "Vincoli Amax [1.46]:",
+            len(
+                vincoli_Amax
+            ),
+        )
+
+
+        print(
+            "Vincoli area aggiunti:",
+            (
+                len(
+                    vincoli_equazione_area
+                )
+                +
+                len(
+                    vincoli_Amax
+                )
+            ),
+        )
+
+
+        print(
+            "\nNumero totale variabili:",
+            mdl.number_of_variables,
+        )
+
+        print(
+            "Numero totale vincoli:",
+            mdl.number_of_constraints,
+        )
+
+
+    return modello_HEN
+
+def aggiungi_obiettivo_TAC_HEN(
+    modello_HEN,
+    utilities_HEN,
+    tecnologie_HEN,
+    debug=False,
+):
+    """
+    Aggiunge al modello HENS la funzione obiettivo
+    TAC - Total Annualized Cost.
+
+    TAC =
+
+        costo hot utilities
+        +
+        costo cold utilities
+        +
+        costo fisso degli exchanger
+        +
+        costo proporzionale all'area
+
+    cioè:
+
+        TAC =
+            sum_i c_HU[i] * Q_HU[i]
+            +
+            sum_j c_CU[j] * Q_CU[j]
+            +
+            sum_z,i,j,t cF[t] * U[z,i,j,t]
+            +
+            sum_z,i,j,t cA[t] * A[z,i,j,t]
+
+    Le unità sono USD/year.
+
+    Parameters
+    ----------
+    modello_HEN : dict
+        Modello HENS contenente almeno:
+        - modello
+        - Q_HU
+        - Q_CU
+        - A
+        - U
+        - indici_A_U
+
+    utilities_HEN : dict
+        Output di costruisci_utilities_HEN().
+
+    tecnologie_HEN : dict
+        Output di costruisci_tecnologie_HEN().
+
+    debug : bool
+        Se True stampa i parametri economici utilizzati.
+
+    Returns
+    -------
+    dict
+        modello_HEN aggiornato con:
+        - costo_hot_utility
+        - costo_cold_utility
+        - costo_fisso_HEX
+        - costo_area_HEX
+        - TAC
+    """
+
+    # =================================================
+    # 1. MODELLO E VARIABILI
+    # =================================================
+
+    mdl = modello_HEN[
+        "modello"
+    ]
+
+    Q_HU = modello_HEN[
+        "Q_HU"
+    ]
+
+    Q_CU = modello_HEN[
+        "Q_CU"
+    ]
+
+    A = modello_HEN[
+        "A"
+    ]
+
+    U = modello_HEN[
+        "U"
+    ]
+
+    indici_A_U = modello_HEN[
+        "indici_A_U"
+    ]
+
+
+    # =================================================
+    # 2. TECNOLOGIE
+    # =================================================
+
+    tecnologie = tecnologie_HEN[
+        "tecnologie"
+    ]
+
+
+    # =================================================
+    # 3. DIZIONARI DELLE UTILITIES
+    # =================================================
+
+    hot_utilities = {
+        utility.codice: utility
+        for utility in utilities_HEN["hot"]
+    }
+
+    cold_utilities = {
+        utility.codice: utility
+        for utility in utilities_HEN["cold"]
+    }
+
+
+    # =================================================
+    # 4. CONTROLLO COSTI HOT UTILITIES
+    # =================================================
+
+    for codice in Q_HU:
+
+        if codice not in hot_utilities:
+
+            raise KeyError(
+                f"Hot utility {codice} presente "
+                "nel modello ma non in "
+                "utilities_HEN."
+            )
+
+        utility = hot_utilities[
+            codice
+        ]
+
+        if (
+            utility.costo_USD_per_kW_year
+            is None
+        ):
+
+            raise ValueError(
+                f"Costo non definito per "
+                f"hot utility {codice}."
+            )
+
+        if (
+            utility.costo_USD_per_kW_year
+            < 0
+        ):
+
+            raise ValueError(
+                f"Costo negativo per "
+                f"hot utility {codice}."
+            )
+
+
+    # =================================================
+    # 5. CONTROLLO COSTI COLD UTILITIES
+    # =================================================
+
+    for codice in Q_CU:
+
+        if codice not in cold_utilities:
+
+            raise KeyError(
+                f"Cold utility {codice} presente "
+                "nel modello ma non in "
+                "utilities_HEN."
+            )
+
+        utility = cold_utilities[
+            codice
+        ]
+
+        if (
+            utility.costo_USD_per_kW_year
+            is None
+        ):
+
+            raise ValueError(
+                f"Costo non definito per "
+                f"cold utility {codice}."
+            )
+
+        if (
+            utility.costo_USD_per_kW_year
+            < 0
+        ):
+
+            raise ValueError(
+                f"Costo negativo per "
+                f"cold utility {codice}."
+            )
+
+
+    # =================================================
+    # 6. COSTO HOT UTILITIES
+    # =================================================
+    #
+    # $/(kW year) * kW
+    #
+    # =
+    #
+    # $/year
+    # =================================================
+
+    costo_hot_utility = mdl.sum(
+
+        hot_utilities[
+            codice
+        ].costo_USD_per_kW_year
+
+        * Q_HU[
+            codice
+        ]
+
+        for codice in Q_HU
+    )
+
+
+    # =================================================
+    # 7. COSTO COLD UTILITIES
+    # =================================================
+
+    costo_cold_utility = mdl.sum(
+
+        cold_utilities[
+            codice
+        ].costo_USD_per_kW_year
+
+        * Q_CU[
+            codice
+        ]
+
+        for codice in Q_CU
+    )
+
+
+    # =================================================
+    # 8. COSTO FISSO DEGLI EXCHANGER
+    # =================================================
+    #
+    # cF[t] * U[z,i,j,t]
+    #
+    # U è intera e rappresenta il numero di
+    # exchanger/shells installati.
+    # =================================================
+
+    costo_fisso_HEX = mdl.sum(
+
+        tecnologie[
+            t
+        ].costo_fisso_USD_per_year
+
+        * U[
+            (
+                z,
+                i,
+                j,
+                t,
+            )
+        ]
+
+        for (
+            z,
+            i,
+            j,
+            t,
+        ) in indici_A_U
+    )
+
+
+    # =================================================
+    # 9. COSTO DELL'AREA
+    # =================================================
+    #
+    # cA[t] * A[z,i,j,t]
+    #
+    # $/(m² year) * m²
+    #
+    # =
+    #
+    # $/year
+    # =================================================
+
+    costo_area_HEX = mdl.sum(
+
+        tecnologie[
+            t
+        ].costo_area_USD_per_m2_year
+
+        * A[
+            (
+                z,
+                i,
+                j,
+                t,
+            )
+        ]
+
+        for (
+            z,
+            i,
+            j,
+            t,
+        ) in indici_A_U
+    )
+
+
+    # =================================================
+    # 10. TAC
+    # =================================================
+
+    TAC = (
+        costo_hot_utility
+        +
+        costo_cold_utility
+        +
+        costo_fisso_HEX
+        +
+        costo_area_HEX
+    )
+
+
+    # =================================================
+    # 11. FUNZIONE OBIETTIVO
+    # =================================================
+    #
+    # Questa chiamata sostituisce il precedente:
+    #
+    # mdl.minimize(0)
+    #
+    # =================================================
+
+    mdl.minimize(
+        TAC
+    )
+
+
+    # =================================================
+    # 12. SALVATAGGIO
+    # =================================================
+
+    modello_HEN[
+        "costo_hot_utility"
+    ] = costo_hot_utility
+
+    modello_HEN[
+        "costo_cold_utility"
+    ] = costo_cold_utility
+
+    modello_HEN[
+        "costo_fisso_HEX"
+    ] = costo_fisso_HEX
+
+    modello_HEN[
+        "costo_area_HEX"
+    ] = costo_area_HEX
+
+    modello_HEN[
+        "TAC"
+    ] = TAC
+
+
+    # =================================================
+    # 13. DEBUG
+    # =================================================
+
+    if debug:
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "OBIETTIVO TAC HENS"
+        )
+
+        print(
+            "=" * 70
+        )
+
+
+        print(
+            "\nHOT UTILITIES"
+        )
+
+        for codice in Q_HU:
+
+            utility = (
+                hot_utilities[
+                    codice
+                ]
+            )
+
+            print(
+                f"  {codice}: "
+                f"{utility.costo_USD_per_kW_year:.2f} "
+                f"$/kW/year"
+            )
+
+
+        print(
+            "\nCOLD UTILITIES"
+        )
+
+        for codice in Q_CU:
+
+            utility = (
+                cold_utilities[
+                    codice
+                ]
+            )
+
+            print(
+                f"  {codice}: "
+                f"{utility.costo_USD_per_kW_year:.2f} "
+                f"$/kW/year"
+            )
+
+
+        print(
+            "\nTECNOLOGIE"
+        )
+
+        for t in tecnologie_HEN["T"]:
+
+            tecnologia = (
+                tecnologie[t]
+            )
+
+            print(
+                f"  {t}: "
+                f"cF = "
+                f"{tecnologia.costo_fisso_USD_per_year:.2f} "
+                f"$/year | "
+                f"cA = "
+                f"{tecnologia.costo_area_USD_per_m2_year:.2f} "
+                f"$/m²/year"
+            )
+
+
+        print(
+            "\nFunzione obiettivo:"
+        )
+
+        print(
+            "  min TAC"
+        )
+
+
+    return modello_HEN
+
+def costruisci_tecnologie_HEN(
+    configurazione,
+    debug=False,
+):
+    """
+    Costruisce le tecnologie degli scambiatori HENS.
+
+    Dal JSON legge:
+
+        hens -> technologies
+
+    e costruisce:
+
+    - insieme T delle tecnologie disponibili;
+    - oggetti TecnologiaHEN;
+    - insieme P_t dei match consentiti
+      per ciascuna tecnologia.
+
+    Returns
+    -------
+    dict
+        {
+            "T": ["T1", ...],
+
+            "tecnologie": {
+                "T1": TecnologiaHEN(...),
+                ...
+            },
+
+            "P_t": {
+                "T1": {
+                    ("H1", "C1"),
+                    ...
+                }
+            }
+        }
+    """
+
+    # =================================================
+    # 1. LETTURA SEZIONE HENS
+    # =================================================
+
+    if "hens" not in configurazione:
+
+        raise ValueError(
+            "La configurazione non contiene "
+            "la sezione 'hens'."
+        )
+
+
+    dati_hens = configurazione[
+        "hens"
+    ]
+
+
+    if "technologies" not in dati_hens:
+
+        raise ValueError(
+            "La sezione 'hens' non contiene "
+            "'technologies'."
+        )
+
+
+    dati_tecnologie = dati_hens[
+        "technologies"
+    ]
+
+
+    if not isinstance(
+        dati_tecnologie,
+        list,
+    ):
+
+        raise ValueError(
+            "'hens.technologies' deve essere "
+            "una lista."
+        )
+
+
+    # =================================================
+    # 2. CORRENTI DISPONIBILI
+    # =================================================
+    #
+    # Costruiamo gli insiemi hot/cold direttamente
+    # dal JSON per verificare che i match dichiarati
+    # abbiano direzione fisicamente corretta.
+    # =================================================
+
+    hot_codes = set()
+    cold_codes = set()
+
+
+    # ---------------------------------------------
+    # Process streams
+    # ---------------------------------------------
+
+    for dati_flusso in configurazione.get(
+        "flussi",
+        [],
+    ):
+
+        if not dati_flusso.get(
+            "disponibile",
+            True,
+        ):
+            continue
+
+        codice = str(
+            dati_flusso["codice"]
+        )
+
+        tipo = str(
+            dati_flusso["tipo"]
+        ).strip().lower()
+
+        if tipo == "hot":
+            hot_codes.add(
+                codice
+            )
+
+        elif tipo == "cold":
+            cold_codes.add(
+                codice
+            )
+
+
+    # ---------------------------------------------
+    # Utility streams
+    # ---------------------------------------------
+
+    for dati_utility in dati_hens.get(
+        "utilities",
+        [],
+    ):
+
+        if not dati_utility.get(
+            "disponibile",
+            True,
+        ):
+            continue
+
+        codice = str(
+            dati_utility["codice"]
+        )
+
+        tipo = str(
+            dati_utility["tipo"]
+        ).strip().lower()
+
+        if tipo == "hot":
+            hot_codes.add(
+                codice
+            )
+
+        elif tipo == "cold":
+            cold_codes.add(
+                codice
+            )
+
+
+    # =================================================
+    # 3. CONTENITORI
+    # =================================================
+
+    tecnologie = {}
+
+    codici = set()
+
+
+    # =================================================
+    # 4. COSTRUZIONE TECNOLOGIE
+    # =================================================
+
+    for dati in dati_tecnologie:
+
+        if not isinstance(
+            dati,
+            dict,
+        ):
+
+            raise ValueError(
+                "Ogni tecnologia HENS deve "
+                "essere un dizionario."
+            )
+
+
+        # ---------------------------------------------
+        # Campi obbligatori
+        # ---------------------------------------------
+
+        campi_obbligatori = [
+            "codice",
+            "FHEX",
+            "A_max_m2",
+            "costo_fisso_USD_per_year",
+            "costo_area_USD_per_m2_year",
+            "matches",
+        ]
+
+
+        mancanti = [
+            campo
+            for campo in campi_obbligatori
+            if campo not in dati
+        ]
+
+
+        if mancanti:
+
+            raise ValueError(
+                "Tecnologia HENS incompleta. "
+                f"Campi mancanti: {mancanti}"
+            )
+
+
+        codice = str(
+            dati["codice"]
+        )
+
+
+        # ---------------------------------------------
+        # Codice duplicato
+        # ---------------------------------------------
+
+        if codice in codici:
+
+            raise ValueError(
+                f"Tecnologia HENS duplicata: "
+                f"{codice}"
+            )
+
+        codici.add(
+            codice
+        )
+
+
+        # ---------------------------------------------
+        # Enabled
+        # ---------------------------------------------
+
+        enabled = bool(
+            dati.get(
+                "enabled",
+                True,
+            )
+        )
+
+
+        # ---------------------------------------------
+        # Parametri numerici
+        # ---------------------------------------------
+
+        FHEX = float(
+            dati["FHEX"]
+        )
+
+        A_max_m2 = float(
+            dati["A_max_m2"]
+        )
+
+        costo_fisso = float(
+            dati[
+                "costo_fisso_USD_per_year"
+            ]
+        )
+
+        costo_area = float(
+            dati[
+                "costo_area_USD_per_m2_year"
+            ]
+        )
+
+
+        # =================================================
+        # 5. CONTROLLI NUMERICI
+        # =================================================
+
+        if (
+            FHEX <= 0
+            or FHEX > 1
+        ):
+
+            raise ValueError(
+                f"FHEX non valido per "
+                f"{codice}: {FHEX}. "
+                "Deve essere compreso "
+                "nell'intervallo (0, 1]."
+            )
+
+
+        if A_max_m2 <= 0:
+
+            raise ValueError(
+                f"A_max_m2 non valido "
+                f"per {codice}: "
+                f"{A_max_m2}"
+            )
+
+
+        if costo_fisso < 0:
+
+            raise ValueError(
+                f"Costo fisso negativo "
+                f"per {codice}: "
+                f"{costo_fisso}"
+            )
+
+
+        if costo_area < 0:
+
+            raise ValueError(
+                f"Costo area negativo "
+                f"per {codice}: "
+                f"{costo_area}"
+            )
+
+
+        # =================================================
+        # 6. COSTRUZIONE P_t
+        # =================================================
+
+        matches = set()
+
+
+        for match in dati["matches"]:
+
+            if (
+                not isinstance(
+                    match,
+                    (list, tuple),
+                )
+                or len(match) != 2
+            ):
+
+                raise ValueError(
+                    f"Match non valido in "
+                    f"{codice}: {match}. "
+                    "Ogni match deve essere "
+                    "[hot, cold]."
+                )
+
+
+            i = str(
+                match[0]
+            )
+
+            j = str(
+                match[1]
+            )
+
+
+            # -----------------------------------------
+            # Controllo hot stream
+            # -----------------------------------------
+
+            if i not in hot_codes:
+
+                raise ValueError(
+                    f"Match non valido per "
+                    f"{codice}: ({i}, {j}). "
+                    f"{i} non è una hot stream "
+                    "disponibile."
+                )
+
+
+            # -----------------------------------------
+            # Controllo cold stream
+            # -----------------------------------------
+
+            if j not in cold_codes:
+
+                raise ValueError(
+                    f"Match non valido per "
+                    f"{codice}: ({i}, {j}). "
+                    f"{j} non è una cold stream "
+                    "disponibile."
+                )
+
+
+            chiave_match = (
+                i,
+                j,
+            )
+
+
+            if chiave_match in matches:
+
+                raise ValueError(
+                    f"Match duplicato in "
+                    f"{codice}: "
+                    f"{chiave_match}"
+                )
+
+
+            matches.add(
+                chiave_match
+            )
+
+
+        # =================================================
+        # 7. CREAZIONE OGGETTO
+        # =================================================
+
+        tecnologia = TecnologiaHEN(
+            codice=codice,
+
+            nome=str(
+                dati.get(
+                    "nome",
+                    codice,
+                )
+            ),
+
+            FHEX=FHEX,
+
+            A_max_m2=A_max_m2,
+
+            costo_fisso_USD_per_year=(
+                costo_fisso
+            ),
+
+            costo_area_USD_per_m2_year=(
+                costo_area
+            ),
+
+            matches=frozenset(
+                matches
+            ),
+
+            enabled=enabled,
+        )
+
+
+        # ---------------------------------------------
+        # Manteniamo solo tecnologie abilitate
+        # ---------------------------------------------
+
+        if not enabled:
+
+            if debug:
+
+                print(
+                    f"Tecnologia {codice} "
+                    "ignorata: enabled=False"
+                )
+
+            continue
+
+
+        tecnologie[
+            codice
+        ] = tecnologia
+
+
+    # =================================================
+    # 8. COSTRUZIONE T E P_t
+    # =================================================
+
+    T = sorted(
+        tecnologie.keys()
+    )
+
+
+    P_t = {
+        t: set(
+            tecnologie[t].matches
+        )
+        for t in T
+    }
+
+
+    # =================================================
+    # 9. CONTROLLO
+    # =================================================
+
+    if not T:
+
+        raise ValueError(
+            "Nessuna tecnologia HENS "
+            "abilitata."
+        )
+
+
+    # =================================================
+    # 10. DEBUG
+    # =================================================
+
+    if debug:
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            "TECNOLOGIE HENS"
+        )
+
+        print(
+            "=" * 70
+        )
+
+
+        print(
+            "\nT =",
+            T,
+        )
+
+
+        for t in T:
+
+            tecnologia = (
+                tecnologie[t]
+            )
+
+            print(
+                f"\n{t} | "
+                f"{tecnologia.nome}"
+            )
+
+            print(
+                f"  FHEX = "
+                f"{tecnologia.FHEX:.3f}"
+            )
+
+            print(
+                f"  A_max = "
+                f"{tecnologia.A_max_m2:.2f} m²"
+            )
+
+            print(
+                f"  costo fisso = "
+                f"{tecnologia.costo_fisso_USD_per_year:.2f} "
+                f"$/year"
+            )
+
+            print(
+                f"  costo area = "
+                f"{tecnologia.costo_area_USD_per_m2_year:.2f} "
+                f"$/m²/year"
+            )
+
+            print(
+                "  P_t ="
+            )
+
+            for match in sorted(
+                P_t[t]
+            ):
+
+                print(
+                    f"    {match}"
+                )
+
+
+    # =================================================
+    # 11. OUTPUT
+    # =================================================
+
+    return {
+
+        "T":
+            T,
+
+        "tecnologie":
+            tecnologie,
+
+        "P_t":
+            P_t,
+    }
