@@ -5,6 +5,20 @@ import matplotlib.pyplot as plt
 
 from docplex.mp.model import Model
 
+from dataclasses import dataclass
+
+
+@dataclass
+class UtilityHEN:
+    codice: str
+    nome: str
+    tipo: str
+    T_in: float
+    T_out: float
+    h_W_m2K: float
+    duty_variabile: bool = True
+    disponibile: bool = True
+
 class Flusso:
     """Corrente sensibile o carico termico isotermo."""
 
@@ -58,7 +72,6 @@ class Flusso:
         traslazione = -delta_half if self.tipo == "hot" else delta_half
         return self.T_in + traslazione, self.T_out + traslazione
 
-
 def carica_caso_studio(percorso_json):
     """Carica il caso studio dal file JSON."""
 
@@ -72,7 +85,6 @@ def carica_caso_studio(percorso_json):
         for dati_flusso in configurazione["flussi"]]
 
     return configurazione
-
 
 def crea_cascata_termica(flussi, delta_T_min, tolleranza=1e-9):
     """Crea la cascata termica includendo i carichi termici isotermi."""
@@ -299,7 +311,6 @@ def costruisci_GCC(risultati, QH_min):
     gcc.extend((riga["cascata_finale"], riga["T_inf"]) for riga in risultati)
     return gcc
 
-
 def self_sufficient_pockets(gcc, delta_T_min, tolleranza=1e-9):
     """Individua MPP, PPP e self-sufficient pockets sulla GCC."""
     def crea_record(codice, tipo, indice, posizione):
@@ -401,7 +412,6 @@ def self_sufficient_pockets(gcc, delta_T_min, tolleranza=1e-9):
         "pockets": pockets,
     }
 
-
 def discretizza_GCC(gcc, punti_pinch, delta_T_max, tolleranza=1e-9):
     limiti = sorted({
         0,
@@ -436,11 +446,9 @@ def discretizza_GCC(gcc, punti_pinch, delta_T_max, tolleranza=1e-9):
         zone_discretizzate.append(zona_discretizzata)
     return zone_discretizzate
 
-
 def converti_zone_milp(zone_GCC):
     """Zona 1 fredda, zona Z calda; k=1 freddo, k=Sz caldo."""
     return [list(reversed(zona)) for zona in reversed(zone_GCC)]
-
 
 def genera_HPPr_candidate(
     zone_GCC, eta_ex, EvaP, CondP, T_cond_max=None,
@@ -807,7 +815,6 @@ def crea_modello_utilities(
         "FinalExergy": FinalExergy,
     }
 
-
 def risolvi_modello_utilities(componenti, log_output=False, tolleranza=1e-6):
     """Risolvi il MILP e restituisce un solo dizionario strutturato."""
     modello = componenti["modello"]
@@ -930,7 +937,6 @@ def risolvi_modello_utilities(componenti, log_output=False, tolleranza=1e-6):
     
     return risultati
 
-
 def prepara_pinch(percorso_json):
     """Esegue la Pinch Analysis del caso studio."""
 
@@ -1019,7 +1025,6 @@ def esegui_milp(dati_pinch, log_output=False):
     )
     return risultati
 
-
 def costruisci_GCC_aggiornata(soluzione, NHL, zone_GCC):
     """Costruisce la GCC dopo l'inserimento delle utilities."""
 
@@ -1046,7 +1051,6 @@ def costruisci_GCC_aggiornata(soluzione, NHL, zone_GCC):
             )
 
     return punti
-
 
 def grafico_TQ(
     tipo_grafico, hot_CC=None, cold_CC=None, gcc=None,
@@ -1216,3 +1220,1993 @@ def salva_grafici(dati_pinch, risultati_milp, cartella):
         ),
         mostra=False,
     )
+
+#-----------------------------------------
+#PREPROCESSING DELLA HEN
+#-----------------------------------------
+
+def costruisci_insiemi_HEN(
+    flussi,
+    utilities,
+    intervalli,
+    delta_T_min,
+    match_permessi=None,
+    NI_H=None,
+    NI_C=None,
+):
+    """Costruisce gli insiemi del modello HENS."""
+
+    # -------------------------------------------------
+    # 1. CORRENTI
+    # -------------------------------------------------
+
+    processi = [
+        flusso
+        for flusso in flussi
+        if flusso.disponibile
+    ]
+
+    hot_utilities = utilities.get("hot", [])
+    cold_utilities = utilities.get("cold", [])
+
+    correnti = (
+        processi
+        + hot_utilities
+        + cold_utilities
+    )
+
+    correnti_per_codice = {
+        flusso.codice: flusso
+        for flusso in correnti
+    }
+
+
+    # -------------------------------------------------
+    # 2. ZONE Z
+    # -------------------------------------------------
+
+    Z = list(intervalli.keys())
+
+
+    # -------------------------------------------------
+    # 3. INTERVALLI Mz
+    # -------------------------------------------------
+
+    M = {
+        z: list(range(1, len(intervalli[z]) + 1))
+        for z in Z
+    }
+
+
+    # Temperature superiore e inferiore degli intervalli
+    T_intervallo = {
+        (z, m): {
+            "T_sup": T_sup,
+            "T_inf": T_inf,
+        }
+        for z in Z
+        for m, (T_sup, T_inf) in enumerate(
+            intervalli[z],
+            start=1,
+        )
+    }
+
+
+    # -------------------------------------------------
+    # 4. TEMPERATURE SULLA SCALA HEN
+    # -------------------------------------------------
+
+    def temperature_HEN(flusso):
+
+        if flusso.tipo == "hot":
+            return (
+                flusso.T_in,
+                flusso.T_out,
+            )
+
+        return (
+            flusso.T_in + delta_T_min,
+            flusso.T_out + delta_T_min,
+        )
+
+
+    # -------------------------------------------------
+    # 5. PRESENZA DI UNA CORRENTE IN UN INTERVALLO
+    # -------------------------------------------------
+
+    def presente(flusso, T_sup, T_inf):
+
+        T1, T2 = temperature_HEN(flusso)
+
+        T_max = max(T1, T2)
+        T_min = min(T1, T2)
+
+        return (
+            T_max >= T_sup
+            and T_min <= T_inf
+        )
+
+
+    # -------------------------------------------------
+    # 6. Hm e Cn
+    # -------------------------------------------------
+
+    H_m = {}
+    C_n = {}
+
+    for z in Z:
+
+        for m in M[z]:
+
+            T_sup, T_inf = intervalli[z][m - 1]
+
+            H_m[z, m] = [
+                flusso.codice
+                for flusso in correnti
+                if flusso.tipo == "hot"
+                and presente(
+                    flusso,
+                    T_sup,
+                    T_inf,
+                )
+            ]
+
+            C_n[z, m] = [
+                flusso.codice
+                for flusso in correnti
+                if flusso.tipo == "cold"
+                and presente(
+                    flusso,
+                    T_sup,
+                    T_inf,
+                )
+            ]
+
+
+    # -------------------------------------------------
+    # 7. Hz e Cz
+    # -------------------------------------------------
+
+    H = {
+        z: sorted({
+            i
+            for m in M[z]
+            for i in H_m[z, m]
+        })
+        for z in Z
+    }
+
+    C = {
+        z: sorted({
+            j
+            for m in M[z]
+            for j in C_n[z, m]
+        })
+        for z in Z
+    }
+
+
+    # -------------------------------------------------
+    # 8. HUz e CUz
+    # -------------------------------------------------
+
+    codici_HU = {
+        utility.codice
+        for utility in hot_utilities
+    }
+
+    codici_CU = {
+        utility.codice
+        for utility in cold_utilities
+    }
+
+    HU = {
+        z: [
+            i
+            for i in H[z]
+            if i in codici_HU
+        ]
+        for z in Z
+    }
+
+    CU = {
+        z: [
+            j
+            for j in C[z]
+            if j in codici_CU
+        ]
+        for z in Z
+    }
+
+
+    # -------------------------------------------------
+    # 9. Mi e Nj
+    # -------------------------------------------------
+
+    M_i = {
+        (z, i): [
+            m
+            for m in M[z]
+            if i in H_m[z, m]
+        ]
+        for z in Z
+        for i in H[z]
+    }
+
+    N_j = {
+        (z, j): [
+            n
+            for n in M[z]
+            if j in C_n[z, n]
+        ]
+        for z in Z
+        for j in C[z]
+    }
+
+
+    # -------------------------------------------------
+    # 10. MATCH CONSENTITI P
+    # -------------------------------------------------
+
+    if match_permessi is None:
+
+        P = {
+            (i, j)
+
+            for z in Z
+            for i in H[z]
+            for j in C[z]
+
+            # Evita uno scambio diretto
+            # hot utility -> cold utility
+            if not (
+                i in HU[z]
+                and j in CU[z]
+            )
+        }
+
+    else:
+
+        P = set(match_permessi)
+
+
+    # -------------------------------------------------
+    # 11. P_Him e P_Cjn
+    # -------------------------------------------------
+
+    P_H = {
+        (z, i, m): [
+            j
+            for j in C[z]
+            if (i, j) in P
+        ]
+        for z in Z
+        for i in H[z]
+        for m in M_i[z, i]
+    }
+
+    P_C = {
+        (z, j, n): [
+            i
+            for i in H[z]
+            if (i, j) in P
+        ]
+        for z in Z
+        for j in C[z]
+        for n in N_j[z, j]
+    }
+
+
+    # -------------------------------------------------
+    # 12. NON-ISOTHERMAL MIXING
+    # -------------------------------------------------
+
+    NI_H = set() if NI_H is None else set(NI_H)
+    NI_C = set() if NI_C is None else set(NI_C)
+
+
+    return {
+        "Z": Z,
+        "H": H,
+        "C": C,
+        "HU": HU,
+        "CU": CU,
+        "M": M,
+        "M_i": M_i,
+        "N_j": N_j,
+        "H_m": H_m,
+        "C_n": C_n,
+        "P": P,
+        "P_H": P_H,
+        "P_C": P_C,
+        "NI_H": NI_H,
+        "NI_C": NI_C,
+        "T_intervallo": T_intervallo,
+        "correnti": correnti_per_codice,
+    }
+def crea_partizione_HEN(
+    gcc,
+    flussi,
+    delta_T_min,
+    pinch_traslati,
+    delta_T_partition_max,
+    numero_intervalli_min,
+    utilities=None,
+    debug=False,
+):
+    """
+    Costruisce la partizione di temperatura per il modello HENS.
+
+    La scala HENS utilizzata è:
+
+        hot  -> T reale
+        cold -> T reale + delta_T_min
+
+    La partizione considera sia le process streams sia,
+    se fornite, le utility HENS.
+
+    Procedura:
+    1. individua i punti angolari della GCC;
+    2. converte la GCC dalla scala simmetrica alla scala HENS;
+    3. aggiunge gli estremi termici delle correnti;
+    4. divide il problema nelle zone determinate dai pinch;
+    5. STEP 1: limita la massima ampiezza degli intervalli;
+    6. STEP 2: garantisce almeno un intervallo interno
+       per ogni corrente;
+    7. STEP 3: garantisce il numero minimo di intervalli.
+
+    Returns
+    -------
+    dict
+
+        {
+            zona: [
+                (T_sup, T_inf),
+                ...
+            ]
+        }
+    """
+
+    tolleranza = 1e-9
+
+    # =================================================
+    # 0. CONTROLLO INPUT
+    # =================================================
+
+    if len(gcc) < 2:
+        raise ValueError(
+            "La GCC deve contenere almeno due punti."
+        )
+
+    if delta_T_partition_max <= 0:
+        raise ValueError(
+            "delta_T_partition_max deve essere > 0."
+        )
+
+    if numero_intervalli_min < 1:
+        raise ValueError(
+            "numero_intervalli_min deve essere >= 1."
+        )
+
+
+    # =================================================
+    # 1. UTILITIES HENS
+    # =================================================
+    #
+    # Se non vengono passate utilities manteniamo
+    # il comportamento precedente process-only.
+    # =================================================
+
+    if utilities is None:
+        utilities = {
+            "hot": [],
+            "cold": [],
+        }
+
+    utilities_hot = utilities.get(
+        "hot",
+        [],
+    )
+
+    utilities_cold = utilities.get(
+        "cold",
+        [],
+    )
+
+    correnti_partizione = (
+        list(flussi)
+        + list(utilities_hot)
+        + list(utilities_cold)
+    )
+
+
+    # =================================================
+    # FUNZIONE DI SUPPORTO:
+    # TEMPERATURE SULLA SCALA HENS
+    # =================================================
+
+    def temperature_corrente_HEN(corrente):
+        """
+        Restituisce T_in e T_out sulla scala HENS.
+
+        Hot:
+            nessuna traslazione
+
+        Cold:
+            + delta_T_min
+        """
+
+        if corrente.tipo == "hot":
+
+            return (
+                float(corrente.T_in),
+                float(corrente.T_out),
+            )
+
+        elif corrente.tipo == "cold":
+
+            return (
+                float(corrente.T_in)
+                + delta_T_min,
+
+                float(corrente.T_out)
+                + delta_T_min,
+            )
+
+        else:
+
+            raise ValueError(
+                f"Tipo corrente non riconosciuto "
+                f"per {corrente.codice}: "
+                f"{corrente.tipo}"
+            )
+
+
+    # =================================================
+    # FUNZIONE DI SUPPORTO:
+    # DISPONIBILITÀ
+    # =================================================
+
+    def corrente_disponibile(corrente):
+
+        return getattr(
+            corrente,
+            "disponibile",
+            True,
+        )
+
+
+    # =================================================
+    # FUNZIONE DI SUPPORTO:
+    # STAMPA LIVELLI
+    # =================================================
+
+    def stampa_livelli(
+        titolo,
+        livelli,
+    ):
+
+        if not debug:
+            return
+
+        print(f"\n{titolo}")
+
+        for T in sorted(
+            livelli,
+            reverse=True,
+        ):
+
+            print(
+                f"  {T:.2f} °C"
+            )
+
+
+    # =================================================
+    # 2. PUNTI ANGOLARI DELLA GCC
+    # =================================================
+
+    vertici = [
+        gcc[0]
+    ]
+
+    for p1, p2, p3 in zip(
+        gcc,
+        gcc[1:],
+        gcc[2:],
+    ):
+
+        Q1, T1 = p1
+        Q2, T2 = p2
+        Q3, T3 = p3
+
+        # Confronto delle pendenze senza divisione.
+        #
+        # (Q2-Q1)/(T2-T1)
+        #
+        # confrontata con
+        #
+        # (Q3-Q2)/(T3-T2)
+
+        lhs = (
+            (Q2 - Q1)
+            * (T3 - T2)
+        )
+
+        rhs = (
+            (T2 - T1)
+            * (Q3 - Q2)
+        )
+
+        cambio_pendenza = (
+            abs(lhs - rhs)
+            > tolleranza
+        )
+
+        if cambio_pendenza:
+
+            vertici.append(
+                p2
+            )
+
+    vertici.append(
+        gcc[-1]
+    )
+
+
+    # =================================================
+    # 3. CONVERSIONE GCC -> SCALA HENS
+    # =================================================
+    #
+    # Pinch Analysis:
+    #
+    # hot  -> T - DTmin/2
+    # cold -> T + DTmin/2
+    #
+    # HENS:
+    #
+    # hot  -> T
+    # cold -> T + DTmin
+    #
+    # Quindi la scala viene traslata di:
+    #
+    # + DTmin/2
+    # =================================================
+
+    temperature_gcc = [
+        T_star
+        + delta_T_min / 2
+        for _, T_star in vertici
+    ]
+
+    pinch_HEN = [
+        T_star
+        + delta_T_min / 2
+        for T_star in pinch_traslati
+    ]
+
+
+    # =================================================
+    # 4. ESTREMI DI TUTTE LE CORRENTI
+    # =================================================
+    #
+    # Questo è importante soprattutto per le utilities.
+    #
+    # Nel benchmark:
+    #
+    # H3:
+    #     180 -> 179 °C
+    #
+    # C3:
+    #     15 -> 25 °C reali
+    #
+    # sulla scala HENS:
+    #
+    #     35 -> 45 °C
+    #
+    # Gli estremi devono appartenere alla partizione
+    # affinché la presenza delle correnti negli
+    # intervalli sia rappresentata esattamente.
+    # =================================================
+
+    temperature_correnti = []
+
+    for corrente in correnti_partizione:
+
+        if not corrente_disponibile(
+            corrente
+        ):
+            continue
+
+        T1, T2 = (
+            temperature_corrente_HEN(
+                corrente
+            )
+        )
+
+        temperature_correnti.extend(
+            [
+                T1,
+                T2,
+            ]
+        )
+
+
+    # =================================================
+    # 5. RANGE COMPLETO DELLA HENS
+    # =================================================
+
+    temperature_base = (
+        list(temperature_gcc)
+        + list(temperature_correnti)
+    )
+
+    if not temperature_base:
+        raise ValueError(
+            "Nessuna temperatura disponibile "
+            "per costruire la partizione HENS."
+        )
+
+    T_max = max(
+        temperature_base
+    )
+
+    T_min = min(
+        temperature_base
+    )
+
+
+    # =================================================
+    # 6. DEFINIZIONE DELLE ZONE
+    # =================================================
+
+    limiti_zone = sorted(
+        {
+            T_max,
+            T_min,
+            *pinch_HEN,
+        },
+        reverse=True,
+    )
+
+    zone = {}
+
+
+    # =================================================
+    # 7. CICLO SULLE ZONE
+    # =================================================
+
+    for z, (
+        T_sup_z,
+        T_inf_z,
+    ) in enumerate(
+        zip(
+            limiti_zone,
+            limiti_zone[1:],
+        ),
+        start=1,
+    ):
+
+
+        # =============================================
+        # PARTIZIONE INIZIALE
+        # =============================================
+        #
+        # Comprende:
+        #
+        # - limiti della zona;
+        # - vertici della GCC;
+        # - estremi delle process streams;
+        # - estremi delle utilities.
+        #
+        # Questo evita intervalli che attraversano
+        # l'inizio o la fine di una corrente.
+        # =============================================
+
+        livelli = {
+            T_sup_z,
+            T_inf_z,
+        }
+
+
+        # ---------------------------------------------
+        # Punti angolari GCC
+        # ---------------------------------------------
+
+        for T in temperature_gcc:
+
+            if (
+                T_inf_z
+                - tolleranza
+                <= T
+                <= T_sup_z
+                + tolleranza
+            ):
+
+                livelli.add(
+                    T
+                )
+
+
+        # ---------------------------------------------
+        # Estremi delle correnti
+        # ---------------------------------------------
+
+        for T in temperature_correnti:
+
+            if (
+                T_inf_z
+                - tolleranza
+                <= T
+                <= T_sup_z
+                + tolleranza
+            ):
+
+                livelli.add(
+                    T
+                )
+
+
+        livelli_iniziali = set(
+            livelli
+        )
+
+
+        if debug:
+
+            print(
+                f"\n{'=' * 55}"
+                f"\nZONA HEN {z}"
+                f"\n"
+                f"{T_sup_z:.2f} -> "
+                f"{T_inf_z:.2f} °C"
+                f"\n{'=' * 55}"
+            )
+
+        stampa_livelli(
+            "Livelli iniziali "
+            "(GCC + estremi correnti):",
+            livelli_iniziali,
+        )
+
+
+        # =================================================
+        # STEP 1
+        # MASSIMA AMPIEZZA INTERVALLI
+        # =================================================
+
+        iterazione = 0
+
+        while True:
+
+            livelli_ordinati = sorted(
+                livelli,
+                reverse=True,
+            )
+
+            nuovi_livelli = []
+
+            for (
+                T_sup,
+                T_inf,
+            ) in zip(
+                livelli_ordinati,
+                livelli_ordinati[1:],
+            ):
+
+                delta_T = (
+                    T_sup
+                    - T_inf
+                )
+
+                if (
+                    delta_T
+                    >
+                    delta_T_partition_max
+                    + tolleranza
+                ):
+
+                    T_medio = (
+                        T_sup
+                        + T_inf
+                    ) / 2
+
+                    nuovi_livelli.append(
+                        T_medio
+                    )
+
+
+            if not nuovi_livelli:
+                break
+
+
+            iterazione += 1
+
+            if debug:
+
+                print(
+                    f"\nSTEP 1 - "
+                    f"dimezzamento "
+                    f"{iterazione}:"
+                )
+
+                for T in nuovi_livelli:
+
+                    print(
+                        f"  aggiunto livello "
+                        f"{T:.2f} °C"
+                    )
+
+
+            livelli.update(
+                nuovi_livelli
+            )
+
+
+        stampa_livelli(
+            "Dopo STEP 1 - "
+            "vincolo ΔTpartition,max:",
+            livelli,
+        )
+
+
+        # =================================================
+        # STEP 2
+        # ALMENO UN INTERVALLO INTERNO PER CORRENTE
+        # =================================================
+
+        for corrente in correnti_partizione:
+
+            if not corrente_disponibile(
+                corrente
+            ):
+                continue
+
+
+            # -----------------------------------------
+            # Temperature sulla scala HENS
+            # -----------------------------------------
+
+            T1, T2 = (
+                temperature_corrente_HEN(
+                    corrente
+                )
+            )
+
+
+            # -----------------------------------------
+            # Intersezione corrente-zona
+            # -----------------------------------------
+
+            T_stream_sup = min(
+                max(T1, T2),
+                T_sup_z,
+            )
+
+            T_stream_inf = max(
+                min(T1, T2),
+                T_inf_z,
+            )
+
+
+            # Nessuna presenza significativa
+            # della corrente nella zona.
+            if (
+                T_stream_sup
+                <=
+                T_stream_inf
+                + tolleranza
+            ):
+                continue
+
+
+            # -----------------------------------------
+            # Livelli strettamente interni
+            # alla corrente
+            # -----------------------------------------
+
+            livelli_interni = [
+                T
+                for T in livelli
+                if (
+                    T_stream_inf
+                    + tolleranza
+                    < T
+                    < T_stream_sup
+                    - tolleranza
+                )
+            ]
+
+
+            # -----------------------------------------
+            # Per avere almeno un intervallo
+            # completamente interno servono almeno
+            # due livelli interni.
+            #
+            # Altrimenti il tratto viene diviso
+            # in tre parti uguali.
+            # -----------------------------------------
+
+            if len(
+                livelli_interni
+            ) < 2:
+
+                delta_T_stream = (
+                    T_stream_sup
+                    - T_stream_inf
+                )
+
+                T_a = (
+                    T_stream_inf
+                    + delta_T_stream / 3
+                )
+
+                T_b = (
+                    T_stream_inf
+                    + 2
+                    * delta_T_stream / 3
+                )
+
+
+                if debug:
+
+                    print(
+                        f"\nSTEP 2 applicato a "
+                        f"{corrente.codice}:"
+                    )
+
+                    print(
+                        f"  tipo: "
+                        f"{corrente.tipo}"
+                    )
+
+                    print(
+                        f"  tratto nella zona: "
+                        f"{T_stream_sup:.2f} -> "
+                        f"{T_stream_inf:.2f} °C"
+                    )
+
+                    print(
+                        f"  livelli interni "
+                        f"prima della divisione: "
+                        f"{len(livelli_interni)}"
+                    )
+
+                    print(
+                        f"  nuovi livelli: "
+                        f"{T_b:.2f} °C, "
+                        f"{T_a:.2f} °C"
+                    )
+
+
+                livelli.add(
+                    T_a
+                )
+
+                livelli.add(
+                    T_b
+                )
+
+
+        stampa_livelli(
+            "Dopo STEP 2 - "
+            "intervalli interni degli stream:",
+            livelli,
+        )
+
+
+        # =================================================
+        # STEP 3
+        # NUMERO MINIMO DI INTERVALLI
+        # =================================================
+
+        while (
+            len(livelli) - 1
+            <
+            numero_intervalli_min
+        ):
+
+            livelli_ordinati = sorted(
+                livelli,
+                reverse=True,
+            )
+
+
+            (
+                T_sup_maggiore,
+                T_inf_maggiore,
+            ) = max(
+                zip(
+                    livelli_ordinati,
+                    livelli_ordinati[1:],
+                ),
+                key=lambda coppia:
+                    coppia[0]
+                    - coppia[1],
+            )
+
+
+            T_medio = (
+                T_sup_maggiore
+                + T_inf_maggiore
+            ) / 2
+
+
+            if debug:
+
+                print(
+                    "\nSTEP 3 - "
+                    "numero minimo "
+                    "di intervalli:"
+                )
+
+                print(
+                    f"  intervalli attuali: "
+                    f"{len(livelli) - 1}"
+                )
+
+                print(
+                    f"  intervallo maggiore: "
+                    f"{T_sup_maggiore:.2f} -> "
+                    f"{T_inf_maggiore:.2f} °C"
+                )
+
+                print(
+                    f"  nuovo livello: "
+                    f"{T_medio:.2f} °C"
+                )
+
+
+            livelli.add(
+                T_medio
+            )
+
+
+        # =================================================
+        # 8. INTERVALLI FINALI
+        # =================================================
+
+        livelli_finali = sorted(
+            livelli,
+            reverse=True,
+        )
+
+
+        stampa_livelli(
+            "Livelli finali HEN:",
+            livelli_finali,
+        )
+
+
+        zone[z] = [
+            (
+                T_sup,
+                T_inf,
+            )
+            for (
+                T_sup,
+                T_inf,
+            ) in zip(
+                livelli_finali,
+                livelli_finali[1:],
+            )
+        ]
+
+
+        if debug:
+
+            print(
+                f"\nNumero intervalli "
+                f"Zona {z}: "
+                f"{len(zone[z])}"
+            )
+
+
+    # =================================================
+    # 9. RIEPILOGO
+    # =================================================
+
+    if debug:
+
+        numero_totale = sum(
+            len(intervalli)
+            for intervalli
+            in zone.values()
+        )
+
+        print(
+            f"\n{'=' * 55}"
+            f"\nRIEPILOGO PARTIZIONE HEN"
+            f"\n{'=' * 55}"
+        )
+
+        for (
+            z,
+            intervalli,
+        ) in zone.items():
+
+            print(
+                f"Zona {z}: "
+                f"{len(intervalli)} "
+                f"intervalli"
+            )
+
+        print(
+            f"Numero totale "
+            f"intervalli HEN: "
+            f"{numero_totale}"
+        )
+
+
+    return zone
+
+def genera_indici_q_HEN(
+    insiemi_HEN,
+    tolleranza=1e-9,
+    debug=False,
+):
+    """
+    Genera gli indici ammissibili della variabile di trasferimento
+    termico q^z_{im,jn} del modello HENS.
+
+    Una variabile q[z, i, m, j, n] viene generata solamente se:
+
+    - la hot stream i è presente nella zona z;
+    - i è presente nell'intervallo m;
+    - la cold stream j è presente nella zona z;
+    - j è presente nell'intervallo n;
+    - il match i-j è consentito;
+    - j appartiene a P_H[z, i, m];
+    - i appartiene a P_C[z, j, n];
+    - T_n^L < T_m^U.
+
+    Returns
+    -------
+    list
+        Lista di tuple:
+        (z, i, m, j, n)
+    """
+
+    Z = insiemi_HEN["Z"]
+
+    H = insiemi_HEN["H"]
+    C = insiemi_HEN["C"]
+
+    M_i = insiemi_HEN["M_i"]
+    N_j = insiemi_HEN["N_j"]
+
+    P = insiemi_HEN["P"]
+    P_H = insiemi_HEN["P_H"]
+    P_C = insiemi_HEN["P_C"]
+
+    T_intervallo = insiemi_HEN["T_intervallo"]
+
+    indici_q = []
+
+
+    # =================================================
+    # GENERAZIONE DEGLI INDICI
+    # =================================================
+
+    for z in Z:
+
+        for i in H[z]:
+
+            for m in M_i[z, i]:
+
+                # Temperatura superiore
+                # dell'intervallo hot m
+                T_m_U = T_intervallo[z, m]["T_sup"]
+
+                for j in P_H[z, i, m]:
+
+                    # Controllo ridondante ma utile:
+                    # il match globale deve essere ammesso.
+                    if (i, j) not in P:
+                        continue
+
+                    # La cold stream deve essere
+                    # effettivamente presente nella zona.
+                    if j not in C[z]:
+                        continue
+
+                    for n in N_j[z, j]:
+
+                        # Coerenza anche dal lato cold.
+                        if i not in P_C[z, j, n]:
+                            continue
+
+                        # Temperatura inferiore
+                        # dell'intervallo cold n
+                        T_n_L = T_intervallo[z, n]["T_inf"]
+
+
+                        # ---------------------------------
+                        # FATTIBILITÀ TERMICA
+                        #
+                        # Condizione riportata nel modello:
+                        #
+                        # T_n^L < T_m^U
+                        #
+                        # La scala HENS incorpora già
+                        # delta_T_min tramite lo shift
+                        # delle cold streams.
+                        # ---------------------------------
+
+                        if (
+                            T_n_L
+                            <
+                            T_m_U - tolleranza
+                        ):
+
+                            indici_q.append(
+                                (
+                                    z,
+                                    i,
+                                    m,
+                                    j,
+                                    n,
+                                )
+                            )
+
+
+    # =================================================
+    # RIMOZIONE EVENTUALI DUPLICATI
+    # =================================================
+
+    indici_q = sorted(
+        set(indici_q),
+        key=lambda x: (
+            x[0],
+            x[1],
+            x[2],
+            x[3],
+            x[4],
+        ),
+    )
+
+
+    # =================================================
+    # STAMPA DIAGNOSTICA
+    # =================================================
+
+    if debug:
+
+        print("\n" + "=" * 65)
+        print("INDICI AMMISSIBILI q^z_im,jn")
+        print("=" * 65)
+
+        for z in Z:
+
+            indici_zona = [
+                indice
+                for indice in indici_q
+                if indice[0] == z
+            ]
+
+            print(
+                f"\nZona {z}: "
+                f"{len(indici_zona)} variabili q"
+            )
+
+            for i in H[z]:
+
+                print(
+                    f"\n  Hot stream {i}"
+                )
+
+                for m in M_i[z, i]:
+
+                    indici_im = [
+                        indice
+                        for indice in indici_zona
+                        if (
+                            indice[1] == i
+                            and indice[2] == m
+                        )
+                    ]
+
+                    if not indici_im:
+                        print(
+                            f"    m={m}: "
+                            f"nessun trasferimento ammissibile"
+                        )
+                        continue
+
+                    print(
+                        f"    m={m}:"
+                    )
+
+                    for _, _, _, j, n in indici_im:
+
+                        T_m_U = (
+                            T_intervallo[z, m]["T_sup"]
+                        )
+
+                        T_n_L = (
+                            T_intervallo[z, n]["T_inf"]
+                        )
+
+                        print(
+                            f"      {i}[m={m}] "
+                            f"-> {j}[n={n}] "
+                            f"| "
+                            f"T_m^U={T_m_U:.2f} °C, "
+                            f"T_n^L={T_n_L:.2f} °C"
+                        )
+
+        print(
+            "\nNumero totale variabili q ammissibili:",
+            len(indici_q),
+        )
+
+    return indici_q
+
+def calcola_delta_H_HEN(
+    insiemi_HEN,
+    tolleranza=1e-9,
+    debug=False,
+):
+    """
+    Calcola le variazioni entalpiche delle process streams
+    in ciascun intervallo del modello HENS.
+
+    Restituisce:
+
+        delta_H_H[z, i, m]
+            calore disponibile dalla hot process stream i
+            nell'intervallo m della zona z [kW]
+
+        delta_H_C[z, j, n]
+            calore richiesto dalla cold process stream j
+            nell'intervallo n della zona z [kW]
+
+    Le utilities sono escluse perché il loro carico termico
+    sarà determinato dal modello attraverso le variabili F_H e F_C.
+
+    Le correnti appartenenti a NI_H o NI_C sono escluse
+    dal base model, coerentemente con le equazioni HENS.
+    """
+
+    Z = insiemi_HEN["Z"]
+
+    H = insiemi_HEN["H"]
+    C = insiemi_HEN["C"]
+
+    HU = insiemi_HEN["HU"]
+    CU = insiemi_HEN["CU"]
+
+    M_i = insiemi_HEN["M_i"]
+    N_j = insiemi_HEN["N_j"]
+
+    NI_H = insiemi_HEN["NI_H"]
+    NI_C = insiemi_HEN["NI_C"]
+
+    T_intervallo = insiemi_HEN["T_intervallo"]
+    correnti = insiemi_HEN["correnti"]
+
+    delta_H_H = {}
+    delta_H_C = {}
+
+
+    # =================================================
+    # FUNZIONE DI SUPPORTO:
+    # CP EQUIVALENTE DELLA CORRENTE
+    # =================================================
+
+    def calcola_CP_equivalente(flusso):
+
+        delta_T_totale = abs(
+            flusso.T_in - flusso.T_out
+        )
+
+        if delta_T_totale <= tolleranza:
+
+            raise ValueError(
+                f"La corrente {flusso.codice} è isoterma. "
+                "La gestione delle correnti isoterme nel modello "
+                "HENS deve essere trattata separatamente."
+            )
+
+        Q_totale = flusso.calcola_Q()
+
+        return (
+            Q_totale
+            / delta_T_totale
+        )
+
+
+    # =================================================
+    # 1. HOT PROCESS STREAMS
+    # =================================================
+
+    for z in Z:
+
+        for i in H[z]:
+
+            # Le hot utilities non hanno ΔH noto:
+            # il loro carico dipenderà da F_H.
+            if i in HU[z]:
+                continue
+
+            # Il base model non tratta qui
+            # il non-isothermal mixing.
+            if i in NI_H:
+                continue
+
+            flusso = correnti[i]
+
+            CP = calcola_CP_equivalente(
+                flusso
+            )
+
+            for m in M_i[z, i]:
+
+                T_sup = (
+                    T_intervallo[z, m]["T_sup"]
+                )
+
+                T_inf = (
+                    T_intervallo[z, m]["T_inf"]
+                )
+
+                delta_T = (
+                    T_sup - T_inf
+                )
+
+                delta_H_H[z, i, m] = (
+                    CP * delta_T
+                )
+
+
+    # =================================================
+    # 2. COLD PROCESS STREAMS
+    # =================================================
+
+    for z in Z:
+
+        for j in C[z]:
+
+            # Le cold utilities non hanno ΔH noto:
+            # il loro carico dipenderà da F_C.
+            if j in CU[z]:
+                continue
+
+            if j in NI_C:
+                continue
+
+            flusso = correnti[j]
+
+            CP = calcola_CP_equivalente(
+                flusso
+            )
+
+            for n in N_j[z, j]:
+
+                T_sup = (
+                    T_intervallo[z, n]["T_sup"]
+                )
+
+                T_inf = (
+                    T_intervallo[z, n]["T_inf"]
+                )
+
+                delta_T = (
+                    T_sup - T_inf
+                )
+
+                delta_H_C[z, j, n] = (
+                    CP * delta_T
+                )
+
+
+    # =================================================
+    # 3. STAMPA DIAGNOSTICA
+    # =================================================
+
+    if debug:
+
+        print("\n" + "=" * 65)
+        print("ΔH DELLE PROCESS STREAMS - HENS")
+        print("=" * 65)
+
+        for z in Z:
+
+            print(
+                f"\n{'-' * 65}"
+                f"\nZONA {z}"
+                f"\n{'-' * 65}"
+            )
+
+
+            # -----------------------------------------
+            # HOT STREAMS
+            # -----------------------------------------
+
+            print("\nHOT PROCESS STREAMS")
+
+            for i in H[z]:
+
+                if i in HU[z] or i in NI_H:
+                    continue
+
+                flusso = correnti[i]
+
+                CP = calcola_CP_equivalente(
+                    flusso
+                )
+
+                print(
+                    f"\n  {i} | "
+                    f"CP = {CP:.6f} kW/K"
+                )
+
+                totale_zona = 0.0
+
+                for m in M_i[z, i]:
+
+                    valore = (
+                        delta_H_H[z, i, m]
+                    )
+
+                    totale_zona += valore
+
+                    T_sup = (
+                        T_intervallo[z, m]["T_sup"]
+                    )
+
+                    T_inf = (
+                        T_intervallo[z, m]["T_inf"]
+                    )
+
+                    print(
+                        f"    m={m:2d} | "
+                        f"{T_sup:8.2f} -> "
+                        f"{T_inf:8.2f} °C | "
+                        f"ΔH = {valore:9.3f} kW"
+                    )
+
+                print(
+                    f"    Totale zona = "
+                    f"{totale_zona:.3f} kW"
+                )
+
+
+            # -----------------------------------------
+            # COLD STREAMS
+            # -----------------------------------------
+
+            print("\nCOLD PROCESS STREAMS")
+
+            for j in C[z]:
+
+                if j in CU[z] or j in NI_C:
+                    continue
+
+                flusso = correnti[j]
+
+                CP = calcola_CP_equivalente(
+                    flusso
+                )
+
+                print(
+                    f"\n  {j} | "
+                    f"CP = {CP:.6f} kW/K"
+                )
+
+                totale_zona = 0.0
+
+                for n in N_j[z, j]:
+
+                    valore = (
+                        delta_H_C[z, j, n]
+                    )
+
+                    totale_zona += valore
+
+                    T_sup = (
+                        T_intervallo[z, n]["T_sup"]
+                    )
+
+                    T_inf = (
+                        T_intervallo[z, n]["T_inf"]
+                    )
+
+                    print(
+                        f"    n={n:2d} | "
+                        f"{T_sup:8.2f} -> "
+                        f"{T_inf:8.2f} °C | "
+                        f"ΔH = {valore:9.3f} kW"
+                    )
+
+                print(
+                    f"    Totale zona = "
+                    f"{totale_zona:.3f} kW"
+                )
+
+
+        # =================================================
+        # 4. CONTROLLO GLOBALE PER CORRENTE
+        # =================================================
+
+        print(
+            "\n" + "=" * 65
+            + "\nCONTROLLO BILANCI PER CORRENTE"
+            + "\n" + "=" * 65
+        )
+
+        codici_process = {
+            codice
+            for z in Z
+            for codice in (
+                set(H[z]) | set(C[z])
+            )
+            if (
+                codice not in HU[z]
+                and codice not in CU[z]
+            )
+        }
+
+        for codice in sorted(codici_process):
+
+            flusso = correnti[codice]
+
+            Q_riferimento = (
+                flusso.calcola_Q()
+            )
+
+            if flusso.tipo == "hot":
+
+                Q_calcolato = sum(
+                    valore
+                    for (z, i, m), valore
+                    in delta_H_H.items()
+                    if i == codice
+                )
+
+            else:
+
+                Q_calcolato = sum(
+                    valore
+                    for (z, j, n), valore
+                    in delta_H_C.items()
+                    if j == codice
+                )
+
+            errore = (
+                Q_calcolato
+                - Q_riferimento
+            )
+
+            print(
+                f"{codice}: "
+                f"Q input = {Q_riferimento:.3f} kW | "
+                f"ΣΔH = {Q_calcolato:.3f} kW | "
+                f"errore = {errore:+.6f} kW"
+            )
+
+
+    return {
+        "delta_H_H": delta_H_H,
+        "delta_H_C": delta_H_C,
+    }
+
+def costruisci_utilities_HEN(
+    configurazione,
+    debug=False,
+):
+    """
+    Costruisce le utility termiche utilizzate nel modello HENS.
+
+    Le utility devono essere definite nel JSON come:
+
+        "hens": {
+            "utilities": [
+                {...},
+                {...}
+            ]
+        }
+
+    Returns
+    -------
+    dict
+        {
+            "hot": [UtilityHEN, ...],
+            "cold": [UtilityHEN, ...]
+        }
+    """
+
+    # =================================================
+    # 1. LETTURA SEZIONE HENS
+    # =================================================
+
+    if "hens" not in configurazione:
+        raise ValueError(
+            "La configurazione non contiene la sezione "
+            "'hens'. Controllare il JSON oppure "
+            "prepara_pinch()."
+        )
+
+    dati_hens = configurazione["hens"]
+
+    if not isinstance(dati_hens, dict):
+        raise ValueError(
+            "La sezione 'hens' deve essere un dizionario."
+        )
+
+
+    # =================================================
+    # 2. LETTURA UTILITIES HENS
+    # =================================================
+
+    if "utilities" not in dati_hens:
+        raise ValueError(
+            "La sezione 'hens' non contiene "
+            "'utilities'."
+        )
+
+    dati_utilities = dati_hens["utilities"]
+
+    if not isinstance(dati_utilities, list):
+        raise ValueError(
+            "'hens.utilities' deve essere una lista."
+        )
+
+
+    # =================================================
+    # 3. CONTENITORE RISULTATI
+    # =================================================
+
+    utilities = {
+        "hot": [],
+        "cold": [],
+    }
+
+    codici = set()
+
+
+    # =================================================
+    # 4. COSTRUZIONE DELLE UTILITIES
+    # =================================================
+
+    for dati in dati_utilities:
+
+        if not isinstance(dati, dict):
+            raise ValueError(
+                "Ogni utility HENS deve essere "
+                "definita tramite un dizionario."
+            )
+
+
+        # ---------------------------------------------
+        # Campi obbligatori
+        # ---------------------------------------------
+
+        campi_obbligatori = [
+            "codice",
+            "tipo",
+            "T_in",
+            "T_out",
+            "h_W_m2K",
+        ]
+
+        mancanti = [
+            campo
+            for campo in campi_obbligatori
+            if campo not in dati
+        ]
+
+        if mancanti:
+            raise ValueError(
+                "Utility HENS incompleta. "
+                f"Campi mancanti: {mancanti}"
+            )
+
+
+        # ---------------------------------------------
+        # Normalizzazione tipo
+        # ---------------------------------------------
+
+        tipo = str(
+            dati["tipo"]
+        ).strip().lower()
+
+        if tipo not in (
+            "hot",
+            "cold",
+        ):
+            raise ValueError(
+                f"Tipo non valido per utility "
+                f"{dati['codice']}: {tipo}. "
+                "Valori ammessi: 'hot', 'cold'."
+            )
+
+
+        # ---------------------------------------------
+        # Creazione oggetto UtilityHEN
+        # ---------------------------------------------
+
+        utility = UtilityHEN(
+            codice=str(
+                dati["codice"]
+            ),
+            nome=str(
+                dati.get(
+                    "nome",
+                    dati["codice"],
+                )
+            ),
+            tipo=tipo,
+            T_in=float(
+                dati["T_in"]
+            ),
+            T_out=float(
+                dati["T_out"]
+            ),
+            h_W_m2K=float(
+                dati["h_W_m2K"]
+            ),
+            duty_variabile=bool(
+                dati.get(
+                    "duty_variabile",
+                    True,
+                )
+            ),
+            disponibile=bool(
+                dati.get(
+                    "disponibile",
+                    True,
+                )
+            ),
+        )
+
+
+        # =================================================
+        # 5. CONTROLLI DI COERENZA
+        # =================================================
+
+        # Codici duplicati
+        if utility.codice in codici:
+
+            raise ValueError(
+                f"Utility HENS duplicata: "
+                f"{utility.codice}"
+            )
+
+        codici.add(
+            utility.codice
+        )
+
+
+        # ---------------------------------------------
+        # Coerenza temperatura HOT
+        # ---------------------------------------------
+
+        if (
+            utility.tipo == "hot"
+            and utility.T_in
+            <= utility.T_out
+        ):
+
+            raise ValueError(
+                f"La hot utility "
+                f"{utility.codice} deve avere "
+                f"T_in > T_out. "
+                f"Ricevuto: "
+                f"{utility.T_in} -> "
+                f"{utility.T_out} °C"
+            )
+
+
+        # ---------------------------------------------
+        # Coerenza temperatura COLD
+        # ---------------------------------------------
+
+        if (
+            utility.tipo == "cold"
+            and utility.T_out
+            <= utility.T_in
+        ):
+
+            raise ValueError(
+                f"La cold utility "
+                f"{utility.codice} deve avere "
+                f"T_out > T_in. "
+                f"Ricevuto: "
+                f"{utility.T_in} -> "
+                f"{utility.T_out} °C"
+            )
+
+
+        # ---------------------------------------------
+        # Coefficiente di scambio
+        # ---------------------------------------------
+
+        if utility.h_W_m2K <= 0:
+
+            raise ValueError(
+                f"h_W_m2K non valido per "
+                f"{utility.codice}: "
+                f"{utility.h_W_m2K}"
+            )
+
+
+        # ---------------------------------------------
+        # Utility non disponibile
+        # ---------------------------------------------
+
+        if not utility.disponibile:
+
+            if debug:
+                print(
+                    f"Utility HENS "
+                    f"{utility.codice} ignorata: "
+                    f"disponibile=False"
+                )
+
+            continue
+
+
+        # ---------------------------------------------
+        # Inserimento
+        # ---------------------------------------------
+
+        utilities[
+            utility.tipo
+        ].append(
+            utility
+        )
+
+
+    # =================================================
+    # 6. STAMPA DIAGNOSTICA
+    # =================================================
+
+    if debug:
+
+        print(
+            "\n"
+            + "=" * 55
+        )
+
+        print(
+            "UTILITY HENS COSTRUITE"
+        )
+
+        print(
+            "=" * 55
+        )
+
+        for utility in utilities["hot"]:
+
+            print(
+                f"{utility.codice} | "
+                f"HOT | "
+                f"{utility.T_in:.2f} -> "
+                f"{utility.T_out:.2f} °C | "
+                f"h = "
+                f"{utility.h_W_m2K:.2f} W/m²K"
+            )
+
+        for utility in utilities["cold"]:
+
+            print(
+                f"{utility.codice} | "
+                f"COLD | "
+                f"{utility.T_in:.2f} -> "
+                f"{utility.T_out:.2f} °C | "
+                f"h = "
+                f"{utility.h_W_m2K:.2f} W/m²K"
+            )
+
+        print(
+            f"\nNumero hot utilities: "
+            f"{len(utilities['hot'])}"
+        )
+
+        print(
+            f"Numero cold utilities: "
+            f"{len(utilities['cold'])}"
+        )
+
+
+    return utilities
