@@ -41,6 +41,8 @@
 
     "hens": {
         "separa_al_pinch": false,
+        "benchmark_TAC_kUSD_year": 181.0,
+        "flexible_streams": [],
 
         "utilities": [
             {
