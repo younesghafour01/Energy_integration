@@ -29,7 +29,7 @@ La parte HENS implementa:
 - ricostruzione della temperatura di uscita ottima;
 - report economico, energetico e confronto con i benchmark.
 
-Le funzioni matematiche elementari restano separate. `prepara_modello_HEN()`
+Le funzioni matematiche elementari restano separate. `prepara_HEN()`
 esegue l'intera pipeline senza risolvere, `risolvi_HEN()` restituisce risultati
 strutturati e `stampa_risultati_HEN()` produce il report unico.
 
@@ -85,9 +85,10 @@ numerica.
 Nel Test 4 il modello semplificato mantiene H3 al suo minimo termodinamico di
 168.098 kW sia con Tout(H1)=65 °C sia forzando Tout(H1)=45 °C. Usare il
 surplus aumenta quindi soltanto cold utility e area, e l'ottimo resta 65 °C.
-Il paper ottiene invece 45 °C e una riduzione di hot utility perché usa la
-formulazione HENS completa con ulteriori vincoli di split e mixing. Questo
-scostamento è riportato, non corretto artificialmente.
+Il paper ottiene invece 45 °C e una riduzione di hot utility. L'ablation BAR05
+mostra che i vincoli di consistenza e la possibilità di due exchanger H1-C1
+spostano parzialmente la soluzione, ma non riproducono da soli H3 = 254 kW o
+TAC = 598 kUSD/year. Lo scostamento è riportato, non corretto artificialmente.
 
 ## Flexible streams e componenti virtuali
 
@@ -135,18 +136,33 @@ Per una flexible cold stream:
 Tout_opt = T_out_max - Q_virtual / CP
 ```
 
-## Limite della formulazione BAR05
+## Estensione rigorosa BAR05
 
-Il modello HENS implementa le equazioni essenziali riportate da
-Zoughaib/Tran. Le formulazioni addizionali del modello BAR05 relative a
-multiple matches, split flow-rate consistency e non-isothermal mixing non
-sono ancora implementate. Per tale motivo i benchmark HENS vengono usati come
-validazione qualitativa e quantitativa approssimata.
+La pipeline HENS puo attivare cumulativamente la parte di Barbaro e
+Bagajewicz (2005), incluso l'insieme configurabile `B` per exchanger multipli.
+Sono presenti gli insiemi `SH`/`SC`, i flussi cumulativi `qhat`, le variabili
+`Y`, `K`, `Khat`, `E`, `alpha`, la consistenza delle frazioni di split e la
+fattibilita di temperatura agli estremi. Per le coppie in `B` sono inoltre
+presenti `qtilde`, `X`, `G`, `qbreve`, area, tecnologia e shell individuali.
+Il corrigendum del 2006 prevale sul paper originale.
 
-In particolare non sono presenti variabili cumulative `qhat`, `Y_H`/`Y_C`,
-insiemi `K`/`Khat`, vincoli di consistenza delle portate o mixing non isotermo.
-I parametri fisici, i costi e `A_max` dei benchmark non vengono modificati per
-forzare i risultati pubblicati.
+Esempio dati:
+
+```json
+"multiple_matches": [["H1", "C1"]],
+"max_exchangers_per_multiple_match": 2
+```
+
+Gli script e i risultati delle ablation BAR05 sono conservati rispettivamente
+in `archive/diagnostics/` e `archive/results/`; non fanno parte del percorso
+operativo. `prepara_HEN()` accetta `bar05_blocchi` e `bar05_qL` per
+analisi programmatiche. Il modello base resta il default quando
+`bar05_blocchi` non viene passato.
+
+Il non-isothermal mixing e `qbar` non sono attivi nel core corrente. La relativa
+diagnostica storica e i valori pubblicati usati nei confronti sono archiviati e
+non entrano nel MILP standard. I parametri fisici e i costi non sono stati
+modificati per inseguire i benchmark.
 
 ## Sezione 1.4: modifica del processo
 

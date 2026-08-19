@@ -492,6 +492,7 @@ def costruisci_GCC(risultati, QH_min):
     return gcc
 
 #le pinch rules sono una cosa da rispettare per non andare ad aumentare il MER e il MER cold definito dalla GCC che abbiamo costruito
+#le pinch rules sono implementate nel modello matematico per la costruzione del MILP
 
 def self_sufficient_pockets(
     gcc,
@@ -832,6 +833,7 @@ def esegui_analisi_pinch(percorso_json):
 
 
 # 5. UTILITY TARGETING E MILP
+# costruzione del modello matematico: variabili, equazioni, disequazioni, funzione obiettivo 
 
 def discretizza_GCC(gcc, punti_pinch, delta_T_max, tolleranza=1e-9):
     """Divide la GCC in zone e discretizza ciascuna zona secondo il modello."""
@@ -1214,6 +1216,7 @@ def genera_candidate_utilities(
                     )
 
     return candidati
+
 def crea_modello_utilities(
     candidati,
     zone_GCC,
@@ -2104,6 +2107,7 @@ def crea_modello_utilities(
         "PprelCHP": PprelCHP,
         "FinalExergy": FinalExergy,
     }
+
 def risolvi_modello_utilities(
     componenti,
     log_output=False,
@@ -2625,12 +2629,17 @@ def esegui_predesign_utilities(dati_pinch, log_output=False):
     }
 
     # GCC dopo l'inserimento delle utilities.
-    risultati["gcc_aggiornata"] = costruisci_GCC_aggiornata(
+    (
+        risultati["gcc_aggiornata"],
+        risultati["gcc_aggiornata_eventi"],
+    ) = costruisci_GCC_aggiornata(
         risultati["soluzione"],
         componenti["NHL"],
         componenti["Papp"],
         componenti["Pprel"],
         zone_GCC,
+        configurazione["evaP"],
+        configurazione["condP"],
     )
 
     # Mantiene disponibili i dati di discretizzazione.
@@ -2643,34 +2652,167 @@ def esegui_predesign_utilities(dati_pinch, log_output=False):
 
 # 6. OUTPUT E PLOTTING 
 
-def costruisci_GCC_aggiornata(soluzione, NHL, Papp, Pprel, zone_GCC):
-    """Costruisce la GCC dopo l'inserimento delle utilities."""
+def costruisci_GCC_aggiornata(
+    soluzione,
+    NHL,
+    Papp,
+    Pprel,
+    zone_GCC,
+    evaP,
+    condP,
+):
+    """Ricostruisce graficamente la GCC separando processo e utilities."""
 
     zone_milp = riordina_zone_per_milp(zone_GCC)
+    tolleranza = 1e-9
+    nodi = []
+    eventi_utility = {}
 
-    punti = []
-
-    # Dalla zona più calda alla più fredda
+    # Lettura caldo -> freddo dei nodi MILP. Papp e Pprel vengono soltanto
+    # riposizionati graficamente alle temperature operative delle HP.
     for z in range(len(zone_milp), 0, -1):
-
         zona = zone_milp[z - 1]
-
-        # Dalla temperatura più alta alla più bassa
         for k in range(len(zona), 0, -1):
+            Q_processo, T_GCC = zona[k - 1]
+            p_app = soluzione.get_value(Papp[z, k])
+            p_prel = soluzione.get_value(Pprel[z, k])
 
-            _, T = zona[k - 1]
+            nodi.append(
+                {
+                    "Q_processo": Q_processo,
+                    "T": T_GCC,
+                    "NHL": soluzione.get_value(NHL[z, k]),
+                }
+            )
 
-            Q = soluzione.get_value(NHL[z, k])
+            if p_app > tolleranza:
+                chiave = (round(T_GCC + condP, 9), "Papp")
+                eventi_utility[chiave] = eventi_utility.get(chiave, 0.0) + p_app
+            if p_prel > tolleranza:
+                chiave = (round(T_GCC - evaP, 9), "Pprel")
+                eventi_utility[chiave] = eventi_utility.get(chiave, 0.0) - p_prel
 
-            punti.append((Q, T))
+    # Rimuove solo i duplicati geometrici ai confini delle zone e conserva
+    # tutti i salti isotermi fisici della GCC di processo.
+    nodi_puliti = []
+    for nodo in nodi:
+        if nodi_puliti:
+            precedente = nodi_puliti[-1]
+            stesso_punto = (
+                abs(nodo["Q_processo"] - precedente["Q_processo"])
+                <= tolleranza
+                and abs(nodo["T"] - precedente["T"]) <= tolleranza
+            )
+            if stesso_punto:
+                continue
+        nodi_puliti.append(nodo)
 
-            Papp_zk = soluzione.get_value(Papp[z, k])
-            Pprel_zk = soluzione.get_value(Pprel[z, k])
+    gruppi_processo = []
+    for nodo in nodi_puliti:
+        if (
+            not gruppi_processo
+            or abs(nodo["T"] - gruppi_processo[-1]["T"]) > tolleranza
+        ):
+            gruppi_processo.append(
+                {"T": nodo["T"], "Q": [nodo["Q_processo"]]}
+            )
+        elif (
+            abs(nodo["Q_processo"] - gruppi_processo[-1]["Q"][-1])
+            > tolleranza
+        ):
+            gruppi_processo[-1]["Q"].append(nodo["Q_processo"])
 
-            if Papp_zk > 1e-9 or Pprel_zk > 1e-9:
-                punti.append((Q + Papp_zk + Pprel_zk, T))
+    eventi_utility = [
+        {"T": T_evento, "tipo": tipo, "delta_Q": delta_Q}
+        for (T_evento, tipo), delta_Q in eventi_utility.items()
+        if abs(delta_Q) > tolleranza
+    ]
+    eventi_utility.sort(key=lambda evento: (-evento["T"], evento["tipo"]))
 
-    return punti
+    if not gruppi_processo:
+        return [], []
+
+    punti_evento = []
+
+    def aggiungi_punto(Q, T, tipo):
+        if punti_evento:
+            Q_precedente, T_precedente, _ = punti_evento[-1]
+            if (
+                abs(Q - Q_precedente) <= tolleranza
+                and abs(T - T_precedente) <= tolleranza
+            ):
+                return
+        punti_evento.append((Q, T, tipo))
+
+    # NHL fissa il livello iniziale. Gli eventi utility spostano poi la
+    # coordinata Q cumulativa quando si incontra la loro temperatura reale.
+    offset_Q = nodi_puliti[0]["NHL"] - nodi_puliti[0]["Q_processo"]
+    indice_utility = 0
+
+    def applica_utility(evento, Q_processo):
+        nonlocal offset_Q
+        Q_prima = Q_processo + offset_Q
+        aggiungi_punto(Q_prima, evento["T"], evento["tipo"])
+        offset_Q += evento["delta_Q"]
+        aggiungi_punto(Q_processo + offset_Q, evento["T"], evento["tipo"])
+
+    def aggiungi_gruppo(gruppo):
+        tipo = "processo_isotermo" if len(gruppo["Q"]) > 1 else "processo"
+        for Q_processo in gruppo["Q"]:
+            aggiungi_punto(Q_processo + offset_Q, gruppo["T"], tipo)
+
+    primo_gruppo = gruppi_processo[0]
+    while (
+        indice_utility < len(eventi_utility)
+        and eventi_utility[indice_utility]["T"] > primo_gruppo["T"] + tolleranza
+    ):
+        applica_utility(eventi_utility[indice_utility], primo_gruppo["Q"][0])
+        indice_utility += 1
+
+    aggiungi_gruppo(primo_gruppo)
+    while (
+        indice_utility < len(eventi_utility)
+        and abs(eventi_utility[indice_utility]["T"] - primo_gruppo["T"])
+        <= tolleranza
+    ):
+        applica_utility(eventi_utility[indice_utility], primo_gruppo["Q"][-1])
+        indice_utility += 1
+
+    for gruppo_precedente, gruppo in zip(
+        gruppi_processo,
+        gruppi_processo[1:],
+    ):
+        T_alta = gruppo_precedente["T"]
+        T_bassa = gruppo["T"]
+        Q_alta = gruppo_precedente["Q"][-1]
+        Q_bassa = gruppo["Q"][0]
+
+        while (
+            indice_utility < len(eventi_utility)
+            and eventi_utility[indice_utility]["T"] > T_bassa + tolleranza
+        ):
+            evento = eventi_utility[indice_utility]
+            frazione = (T_alta - evento["T"]) / (T_alta - T_bassa)
+            Q_interpolato = Q_alta + frazione * (Q_bassa - Q_alta)
+            applica_utility(evento, Q_interpolato)
+            indice_utility += 1
+
+        aggiungi_gruppo(gruppo)
+        while (
+            indice_utility < len(eventi_utility)
+            and abs(eventi_utility[indice_utility]["T"] - T_bassa)
+            <= tolleranza
+        ):
+            applica_utility(eventi_utility[indice_utility], gruppo["Q"][-1])
+            indice_utility += 1
+
+    ultimo_gruppo = gruppi_processo[-1]
+    while indice_utility < len(eventi_utility):
+        applica_utility(eventi_utility[indice_utility], ultimo_gruppo["Q"][-1])
+        indice_utility += 1
+
+    punti = [(Q, T) for Q, T, _ in punti_evento]
+    return punti, punti_evento
 
 def costruisci_curva_utilities(risultati_milp):
     """Combina tutte le utility selezionate in una curva cumulativa."""
@@ -2710,6 +2852,13 @@ def stampa_punti_curva(nome, curva):
     for indice, (Q, T) in enumerate(curva):
         print(f"{indice:6d} | {Q:8.3f} | {T:7.3f}")
 
+def stampa_eventi_GCC_aggiornata(eventi):
+    """Stampa la sequenza grafica della GCC aggiornata e la sua origine."""
+    print("\nGCC aggiornata")
+    print("indice | Q [kW] | T [°C] | tipo_evento")
+    for indice, (Q, T, tipo_evento) in enumerate(eventi):
+        print(f"{indice:6d} | {Q:8.3f} | {T:7.3f} | {tipo_evento}")
+
 def grafico_TQ(
     tipo_grafico,
     hot_CC=None,
@@ -2733,8 +2882,22 @@ def grafico_TQ(
     if tipo_grafico in ("composite", "composite_traslate"):
         Q_hot, T_hot = zip(*hot_CC)
         Q_cold, T_cold = zip(*cold_CC)
-        ax.plot(Q_hot, T_hot, color="red", marker="o", label="Hot CC")
-        ax.plot(Q_cold, T_cold, color="blue", marker="o", label="Cold CC")
+        ax.plot(
+            Q_hot,
+            T_hot,
+            color="red",
+            linestyle="--",
+            linewidth=1.2,
+            label="Hot CC",
+        )
+        ax.plot(
+            Q_cold,
+            T_cold,
+            color="blue",
+            linestyle="-",
+            linewidth=1.2,
+            label="Cold CC",
+        )
         if tipo_grafico == "composite":
             ax.set_title("Composite Curves - temperature reali")
             ax.set_ylabel("Temperatura reale [°C]")
@@ -2743,7 +2906,8 @@ def grafico_TQ(
             ax.set_ylabel("Temperatura traslata T* [°C]")
     elif tipo_grafico in ("gcc", "gcc_aggiornata"):
         Q, T = zip(*gcc)
-        ax.plot(Q, T, color="red", linewidth=2)
+        linewidth = 1.2 if tipo_grafico == "gcc_aggiornata" else 2
+        ax.plot(Q, T, color="red", linewidth=linewidth)
         ax.axvline(0, color="black", linestyle="--", linewidth=1)
 
         if tipo_grafico == "gcc":
@@ -2810,6 +2974,8 @@ def grafico_TQ(
         ax.set_ylim(ylim)
     if xticks is not None:
         ax.set_xticks(xticks)
+        if len(xticks) > 15:
+            ax.tick_params(axis="x", labelrotation=45)
     if yticks is not None:
         ax.set_yticks(yticks)
     ax.grid(True, linestyle="--", alpha=0.4)
@@ -2913,6 +3079,57 @@ def stampa_risultati_milp(risultati):
             f"Wprod={chp['P_elettrica_prodotta_kW']:.3f} kW"
         )
 
+    pompe_selezionate = [
+        ("HPPr", hp) for hp in risultati["HPPr_selezionate"]
+    ] + [
+        ("HPUt", hp) for hp in risultati["HPUt_selezionate"]
+    ]
+    carico_raffreddamento_residuo_hp = (
+        risultati["cold_MER_residuo_kW"]
+        + sum(
+            orc["heat_load_kW"]
+            for orc in risultati["ORC_selezionati"]
+        )
+        + sum(
+            ref["Q_evap_kW"]
+            for ref in risultati["Ref_selezionati"]
+        )
+    )
+    for tipo, hp in pompe_selezionate:
+        righe = [
+            ("Heat pump heating capacity (kW)", hp["Q_cond_kW"]),
+            ("Heat pump cooling capacity (kW)", hp["Q_evap_kW"]),
+            ("Heat pump electrical power (kW)", hp["P_elettrica_kW"]),
+            ("Evaporation temperature (°C)", hp["T_evap_C"]),
+            ("Condensation temperature (°C)", hp["T_cond_C"]),
+            (
+                "Remaining cooling load (kW)",
+                carico_raffreddamento_residuo_hp,
+            ),
+        ]
+        larghezza_parametro = max(len("Parameter"), *(len(nome) for nome, _ in righe))
+        larghezza_valore = max(
+            len("Value"),
+            *(len(f"{valore:.3f}") for _, valore in righe),
+        )
+        separatore = (
+            f"+-{'-' * larghezza_parametro}-+-{'-' * larghezza_valore}-+"
+        )
+
+        print(f"\nPRESELECTION RESULT - {tipo} {hp['indice']}")
+        print(separatore)
+        print(
+            f"| {'Parameter':<{larghezza_parametro}} "
+            f"| {'Value':>{larghezza_valore}} |"
+        )
+        print(separatore)
+        for nome, valore in righe:
+            print(
+                f"| {nome:<{larghezza_parametro}} "
+                f"| {valore:>{larghezza_valore}.3f} |"
+            )
+        print(separatore)
+
     print("\nGLOBALI")
     print(f"TEC: {risultati['TEC_kW']:.3f} kW")
     print(f"TEP: {risultati['TEP_kW']:.3f} kW")
@@ -2933,12 +3150,26 @@ def salva_grafici(dati_pinch, risultati_milp, cartella):
 
     curva_utilities = costruisci_curva_utilities(risultati_milp)
     stampa_punti_curva("GCC iniziale", dati_pinch["gcc"])
-    stampa_punti_curva("GCC aggiornata", risultati_milp["gcc_aggiornata"])
+    stampa_eventi_GCC_aggiornata(risultati_milp["gcc_aggiornata_eventi"])
     stampa_punti_curva("Curva utilities", curva_utilities)
 
-    caso_dairy = "dairy" in dati_pinch["configurazione"].get("nome", "").lower()
+    nome_caso = dati_pinch["configurazione"].get("nome", "").lower()
+    caso_dairy = "dairy" in nome_caso
+    caso_4_flussi = "4 flussi" in nome_caso
     dairy_ylim = (-20, 100) if caso_dairy else None
     dairy_yticks = list(range(-20, 101, 20)) if caso_dairy else None
+    composite_xlim = (
+        (0, 10000) if caso_dairy
+        else (0, 550) if caso_4_flussi
+        else None
+    )
+    dairy_composite_ylim = (0, 100) if caso_dairy else None
+    composite_xticks = (
+        list(range(0, 10001, 1000)) if caso_dairy
+        else list(range(0, 551, 50)) if caso_4_flussi
+        else None
+    )
+    dairy_composite_yticks = list(range(0, 101, 10)) if caso_dairy else None
 
     # Composite Curves - temperature reali
     grafico_TQ(
@@ -2949,6 +3180,10 @@ def salva_grafici(dati_pinch, risultati_milp, cartella):
             cartella / "composite_curves_reali.png"
         ),
         mostra=False,
+        xlim=composite_xlim,
+        ylim=dairy_composite_ylim,
+        xticks=composite_xticks,
+        yticks=dairy_composite_yticks,
     )
 
     # Composite Curves - temperature traslate
@@ -2960,6 +3195,10 @@ def salva_grafici(dati_pinch, risultati_milp, cartella):
             cartella / "composite_curves_traslate.png"
         ),
         mostra=False,
+        xlim=composite_xlim,
+        ylim=dairy_composite_ylim,
+        xticks=composite_xticks,
+        yticks=dairy_composite_yticks,
     )
 
 

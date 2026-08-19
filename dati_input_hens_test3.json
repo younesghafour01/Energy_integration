@@ -33,16 +33,16 @@
   },
   "flussi": [
     {"codice": "H1", "nome": "H1", "tipo": "hot", "T_in": 175.0, "T_out": 45.0,
-     "heat_load_kW": 361.0, "h_W_m2K": 56.0, "delta_T_min_half": 10.0,
+     "heat_load_kW": 361.0, "h_W_m2K": 56.0, 
      "processo": "HENS", "zona": "processo", "disponibile": true},
     {"codice": "H2", "nome": "H2", "tipo": "hot", "T_in": 125.0, "T_out": 65.0,
-     "heat_load_kW": 667.0, "h_W_m2K": 56.0, "delta_T_min_half": 10.0,
+     "heat_load_kW": 667.0, "h_W_m2K": 56.0, 
      "processo": "HENS", "zona": "processo", "disponibile": true},
     {"codice": "C1", "nome": "C1", "tipo": "cold", "T_in": 20.0, "T_out": 155.0,
-     "heat_load_kW": 750.0, "h_W_m2K": 56.0, "delta_T_min_half": 10.0,
+     "heat_load_kW": 750.0, "h_W_m2K": 56.0,
      "processo": "HENS", "zona": "processo", "disponibile": true},
     {"codice": "C2", "nome": "C2", "tipo": "cold", "T_in": 40.0, "T_out": 112.0,
-     "heat_load_kW": 300.0, "h_W_m2K": 56.0, "delta_T_min_half": 10.0,
+     "heat_load_kW": 300.0, "h_W_m2K": 56.0, 
      "processo": "HENS", "zona": "processo", "disponibile": true}
   ]
 }

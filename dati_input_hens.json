@@ -124,7 +124,7 @@
             "T_out": 45.0,
             "heat_load_kW": 361.0,
             "h_W_m2K": 56.0,
-            "delta_T_min_half": 10.0,
+             
             "processo": "HENS",
             "zona": "processo",
             "disponibile": true
@@ -137,7 +137,7 @@
             "T_out": 65.0,
             "heat_load_kW": 667.0,
             "h_W_m2K": 56.0,
-            "delta_T_min_half": 10.0,
+             
             "processo": "HENS",
             "zona": "processo",
             "disponibile": true
@@ -150,7 +150,7 @@
             "T_out": 155.0,
             "heat_load_kW": 750.0,
             "h_W_m2K": 56.0,
-            "delta_T_min_half": 10.0,
+             
             "processo": "HENS",
             "zona": "processo",
             "disponibile": true
@@ -163,7 +163,7 @@
             "T_out": 112.0,
             "heat_load_kW": 300.0,
             "h_W_m2K": 56.0,
-            "delta_T_min_half": 10.0,
+             
             "processo": "HENS",
             "zona": "processo",
             "disponibile": true

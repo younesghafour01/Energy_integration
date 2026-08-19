@@ -5,7 +5,7 @@
     "eta_ex": 0.60,
     "evaP": 5.0,
     "condP": 5.0,
-    "T_cond_max": 393.15,
+    "T_cond_max": 393.15, 
     "T0": 288.15,
     "T_f": 1073.15,
 
@@ -23,8 +23,8 @@
             "max": 0
         },
         "ORC": {
-            "enabled": false,
-            "max": 0
+            "enabled": true,
+            "max": 1
         },
         "CHP": {
             "enabled": false,
