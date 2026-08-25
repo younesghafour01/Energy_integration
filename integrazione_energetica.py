@@ -1,5 +1,6 @@
 import json
 import math
+from collections import Counter
 from pathlib import Path
 
 # 1. STRUTTURE DATI
@@ -24,6 +25,7 @@ class Flusso:
         remark=None,
         unit=None,
         h_W_m2K=None,
+        splittable=True,
     ):
         if tipo not in ("hot", "cold"):
             raise ValueError(f"Tipo non valido per il flusso {codice}: {tipo}")
@@ -68,6 +70,9 @@ class Flusso:
         self.disponibile = bool(disponibile)
         self.remark = remark
         self.unit = unit
+        # BAR05, sets SH/SC: by default process streams remain splittable to
+        # preserve the behaviour of JSON files created before this field.
+        self.splittable = bool(splittable)
 
         # Determinazione del CP.
         if self.isotermo:
@@ -1217,6 +1222,7 @@ def genera_candidate_utilities(
 
     return candidati
 
+
 def crea_modello_utilities(
     candidati,
     zone_GCC,
@@ -1376,6 +1382,8 @@ def crea_modello_utilities(
         },
     }
 
+
+
     # ============================================================
     # [1.9]-[1.13]
     # VARIABILI DI PRESENZA E FRAZIONI DI UTILIZZO
@@ -1467,6 +1475,7 @@ def crea_modello_utilities(
         name="FChp",
     )
 
+
     # ============================================================
     # COLLEGAMENTO TRA Bool E F
     # ============================================================
@@ -1513,6 +1522,7 @@ def crea_modello_utilities(
                 F[indice] <= Bool[indice]
             )
 
+
     # ============================================================
     # [1.14]-[1.17]
     # NUMERO MASSIMO DI UTILITY
@@ -1538,6 +1548,7 @@ def crea_modello_utilities(
             <= utilities["CHP"]["max"]
         )
 
+
     if len(BoolRef) > 0:
 
         modello.add_constraint(
@@ -1545,12 +1556,14 @@ def crea_modello_utilities(
             <= utilities["chiller"]["max"]
         )
 
+
     if len(BoolORC) > 0:
 
         modello.add_constraint(
             modello.sum(BoolORC.values())
             <= utilities["ORC"]["max"]
         )
+
 
     # HPPr e HPUt condividono lo stesso limite HPmax.
     #
@@ -1564,6 +1577,7 @@ def crea_modello_utilities(
             + modello.sum(BoolHPUt.values())
             <= utilities["HP_max"]
         )
+
 
     # Conserviamo le variabili in un dizionario perché serviranno
     # dopo la soluzione per leggere quali utility CPLEX ha selezionato.
@@ -1598,6 +1612,7 @@ def crea_modello_utilities(
         lb=0,
         name="Pprel",
     )
+
 
     for y, j in indici_GCC:
 
@@ -1651,6 +1666,7 @@ def crea_modello_utilities(
             * modello.sum(termini)
         )
 
+
     # ============================================================
     # [1.20]-[1.22]
     # CALORE FORNITO ALLA GCC: Papp_zk
@@ -1661,6 +1677,7 @@ def crea_modello_utilities(
         lb=0,
         name="Papp",
     )
+
 
     for z, k in indici_GCC:
 
@@ -1743,6 +1760,7 @@ def crea_modello_utilities(
             == modello.sum(termini)
         )
 
+
     # ============================================================
     # [1.23]-[1.25]
     # NUOVO HEAT LOAD DELLA GCC: NHL_zk
@@ -1761,6 +1779,7 @@ def crea_modello_utilities(
         lb=0,
         name="NHL",
     )
+
 
     # ------------------------------------------------------------
     # [1.23]
@@ -1806,6 +1825,7 @@ def crea_modello_utilities(
                 + effetto_zone_superiori
             )
 
+
     # ------------------------------------------------------------
     # [1.24]
     # Zona più calda Z
@@ -1824,6 +1844,7 @@ def crea_modello_utilities(
             )
         )
 
+
     # ============================================================
     # [1.26]-[1.28]
     # CONSUMO ELETTRICO
@@ -1836,6 +1857,7 @@ def crea_modello_utilities(
         lb=0,
         name="Pelec",
     )
+
 
     for z, k in indici_GCC:
 
@@ -1913,6 +1935,7 @@ def crea_modello_utilities(
             == modello.sum(termini)
         )
 
+
     # ------------------------------------------------------------
     # [1.28] TEC = Total Electricity Consumption
     # ------------------------------------------------------------
@@ -1924,6 +1947,7 @@ def crea_modello_utilities(
         name="TEC",
     )
 
+
     # TEC è la somma di tutti i consumi elettrici locali.
     modello.add_constraint(
         TEC
@@ -1932,6 +1956,7 @@ def crea_modello_utilities(
             for indice in indici_GCC
         )
     )
+
 
     # ============================================================
     # [1.29]
@@ -1943,6 +1968,7 @@ def crea_modello_utilities(
         lb=0,
         name="TEP",
     )
+
 
     # ORC:
     #
@@ -1979,6 +2005,7 @@ def crea_modello_utilities(
         + produzione_CHP
     )
 
+
     # ============================================================
     # [1.30]
     # ENERGIA TERMICA PRELEVATA DALLA SORGENTE DEL CHP
@@ -1988,6 +2015,7 @@ def crea_modello_utilities(
         lb=0,
         name="PprelCHP",
     )
+
 
     modello.add_constraint(
         PprelCHP
@@ -1999,6 +2027,7 @@ def crea_modello_utilities(
             in mappe["CHP"].items()
         )
     )
+
 
     # Le equazioni [1.31]-[1.35] non compaiono qui come
     # constraint DOcplex.
@@ -2046,6 +2075,7 @@ def crea_modello_utilities(
         name="FinalExergy",
     )
 
+
     # Definizione matematica della funzione FinalExergy.
     #
     # La relazione viene prima inserita come vincolo:
@@ -2062,6 +2092,7 @@ def crea_modello_utilities(
         - TEP
     )
 
+
     # Con minimize() diciamo a DOcplex quale grandezza
     # CPLEX deve cercare di rendere minima.
     #
@@ -2073,6 +2104,7 @@ def crea_modello_utilities(
     #   - rispettino tutti i vincoli precedenti;
     #   - minimizzino FinalExergy.
     modello.minimize(FinalExergy)
+
 
     # ============================================================
     # RESTITUZIONE DEL MODELLO
@@ -2813,7 +2845,6 @@ def costruisci_GCC_aggiornata(
 
     punti = [(Q, T) for Q, T, _ in punti_evento]
     return punti, punti_evento
-
 def costruisci_curva_utilities(risultati_milp):
     """Combina tutte le utility selezionate in una curva cumulativa."""
     carichi_isotermi = {}
@@ -2844,21 +2875,6 @@ def costruisci_curva_utilities(risultati_milp):
         return []
     Q_min = min(Q_punto for Q_punto, _ in curva)
     return [(Q_punto - Q_min, T_C) for Q_punto, T_C in curva]
-
-def stampa_punti_curva(nome, curva):
-    """Stampa indice, carico termico e temperatura dei punti di una curva."""
-    print(f"\n{nome}")
-    print("indice | Q [kW] | T [°C]")
-    for indice, (Q, T) in enumerate(curva):
-        print(f"{indice:6d} | {Q:8.3f} | {T:7.3f}")
-
-def stampa_eventi_GCC_aggiornata(eventi):
-    """Stampa la sequenza grafica della GCC aggiornata e la sua origine."""
-    print("\nGCC aggiornata")
-    print("indice | Q [kW] | T [°C] | tipo_evento")
-    for indice, (Q, T, tipo_evento) in enumerate(eventi):
-        print(f"{indice:6d} | {Q:8.3f} | {T:7.3f} | {tipo_evento}")
-
 def grafico_TQ(
     tipo_grafico,
     hot_CC=None,
@@ -2992,7 +3008,6 @@ def grafico_TQ(
     else:
         plt.close(fig)
     return fig, ax
-
 def stampa_risultati_milp(risultati):
     """Stampa la soluzione del MILP di utility targeting."""
 
@@ -3095,6 +3110,7 @@ def stampa_risultati_milp(risultati):
             for ref in risultati["Ref_selezionati"]
         )
     )
+
     for tipo, hp in pompe_selezionate:
         righe = [
             ("Heat pump heating capacity (kW)", hp["Q_cond_kW"]),
@@ -3137,7 +3153,6 @@ def stampa_risultati_milp(risultati):
     print(f"Hot MER residuo: {risultati['hot_MER_residuo_kW']:.3f} kW")
     print(f"Cold MER residuo: {risultati['cold_MER_residuo_kW']:.3f} kW")
     print(f"FinalExergy: {risultati['FinalExergy_kW']:.3f} kW")
-
 def salva_grafici(dati_pinch, risultati_milp, cartella):
     """Salva Composite Curves, GCC, ICC e self-sufficient pockets."""
 
@@ -3149,9 +3164,6 @@ def salva_grafici(dati_pinch, risultati_milp, cartella):
     )
 
     curva_utilities = costruisci_curva_utilities(risultati_milp)
-    stampa_punti_curva("GCC iniziale", dati_pinch["gcc"])
-    stampa_eventi_GCC_aggiornata(risultati_milp["gcc_aggiornata_eventi"])
-    stampa_punti_curva("Curva utilities", curva_utilities)
 
     nome_caso = dati_pinch["configurazione"].get("nome", "").lower()
     caso_dairy = "dairy" in nome_caso
@@ -3247,30 +3259,28 @@ def salva_grafici(dati_pinch, risultati_milp, cartella):
 
 
 
-
-
-
 #------------------------------- HEAT EXCHANGE NETWORK SYNTHESIS-----------------------------------------------------------------------------------
 
 
 # 1. STRUTTURE DATI
-
 class UtilityHEN:
-    """Utility fisica o virtuale disponibile nel modello HENS."""
 
     def __init__(
-        self,
-        codice,
-        nome,
-        tipo,
-        T_in,
-        T_out,
-        h_W_m2K,
-        costo_USD_per_kW_year=None,
-        duty_variabile=True,
-        disponibile=True,
-        virtuale=False,
-    ):
+    self,
+    codice,
+    nome,
+    tipo,
+    T_in,
+    T_out,
+    h_W_m2K,
+    F_U_kW_K=None,
+    costo_USD_per_kW_year=None,
+    duty_variabile=True,
+    disponibile=True,
+    virtuale=False,
+):
+        """Rappresenta una utility HENS fisica o virtuale."""
+
         self.codice = str(codice)
         self.nome = str(nome)
         self.tipo = str(tipo)
@@ -3279,6 +3289,18 @@ class UtilityHEN:
         self.T_out = float(T_out)
 
         self.h_W_m2K = float(h_W_m2K)
+        self.F_U_kW_K = (
+            None
+            if F_U_kW_K is None
+            else float(F_U_kW_K)
+        )
+
+        if self.F_U_kW_K is not None and self.F_U_kW_K <= 0:
+            raise ValueError(
+                f"F_U_kW_K non valido per {self.codice}: "
+                f"{self.F_U_kW_K}"
+            )
+        
 
         self.costo_USD_per_kW_year = (
             None
@@ -3291,7 +3313,12 @@ class UtilityHEN:
         self.virtuale = bool(virtuale)
 
 class TecnologiaHEN:
-    """Tecnologia di scambio disponibile nel modello HENS."""
+    """Rappresenta una tecnologia HEX candidata e i relativi match ammessi.
+
+    È l'estensione TRA15 del modello base BAR05: FHEX corregge l'area e P_t
+    limita gli accoppiamenti, come descritto in Energy Integration §1.3.1.4,
+    Eq. [1.42]-[1.47].
+    """
 
     def __init__(
         self,
@@ -3305,6 +3332,7 @@ class TecnologiaHEN:
         enabled=True,
         virtuale=False,
     ):
+        """Memorizza prestazioni, limiti d'area, costi e insieme P_t."""
         self.codice = str(codice)
         self.nome = str(nome)
 
@@ -3327,7 +3355,12 @@ class TecnologiaHEN:
 # 2. INPUT funzioni che gestiscono l'input = "configuazione"
 
 def costruisci_utilities_HEN(configurazione):
-    """Legge e valida le utility HENS fisiche dichiarate nel JSON."""
+    """Legge e valida le utility fisiche che alimentano la pipeline HENS.
+
+    Fisicamente descrive correnti a temperature fissate e duty variabile
+    (Energy Integration §1.3). Preprocessing HENS: non corrisponde a una
+    singola equazione del PDF.
+    """
     if "hens" not in configurazione:
         raise ValueError("La configurazione non contiene la sezione 'hens'.")
     dati_hens = configurazione["hens"]
@@ -3338,6 +3371,7 @@ def costruisci_utilities_HEN(configurazione):
     dati_utilities = dati_hens["utilities"]
     if not isinstance(dati_utilities, list):
         raise ValueError("'hens.utilities' deve essere una lista.")
+    # PDF §1.3.1.2 - Le utility sono separate negli insiemi HU e CU.
     utilities = {"hot": [], "cold": []}
     codici = set()
     for dati in dati_utilities:
@@ -3361,6 +3395,7 @@ def costruisci_utilities_HEN(configurazione):
             T_in=float(dati["T_in"]),
             T_out=float(dati["T_out"]),
             h_W_m2K=float(dati["h_W_m2K"]),
+            F_U_kW_K=dati.get("F_U_kW_K"),
             costo_USD_per_kW_year=costo,
             duty_variabile=bool(dati.get("duty_variabile", True)),
             disponibile=bool(dati.get("disponibile", True)),
@@ -4141,73 +4176,87 @@ def calcola_delta_H_HEN(insiemi_HEN, tolleranza=1e-09):
                 delta_H_C[z, j, n] = CP * delta_T
     return {"delta_H_H": delta_H_H, "delta_H_C": delta_H_C}
 
-def calcola_F_U_BAR05_HEN(configurazione, utilities_HEN, tolleranza=1e-12):
-    """Costruisce i parametri fisici F_i^U/F_j^U del corrigendum BAR05.
-
-    Il bound della hot utility deriva dall'intero fabbisogno nominale delle
-    process cold streams; quello della cold utility dall'intera disponibilita
-    nominale delle process hot streams. Le flexible streams contribuiscono
-    quindi con il duty nominale massimo, prima del solve. Le utility virtuali
-    non appartengono a questa parametrizzazione fisica.
+def calcola_F_U_BAR05_HEN(
+    configurazione,
+    utilities_HEN,
+    tolleranza=1e-12,
+):
     """
-    processi = [
-        flusso
-        for flusso in configurazione ["flussi"]
-        if flusso.disponibile
-    ]
-    Q_HU_max = sum(
-        flusso.calcola_Q() for flusso in processi if flusso.tipo == "cold"
-    )
-    Q_CU_max = sum(
-        flusso.calcola_Q() for flusso in processi if flusso.tipo == "hot"
-    )
+    Costruisce i parametri F_i^U e F_j^U delle Eq. BAR05 (13)-(14).
+
+    Per le utility fisiche BAR05, F_U è un parametro di input
+    espresso come heat-capacity flow [kW/K].
+
+    Non viene ricostruito dal fabbisogno energetico globale
+    del processo.
+
+    Le utility virtuali non appartengono alla parametrizzazione
+    F_U fisica BAR05.
+    """
+
+    del configurazione
+
     F_U_hot = {}
     F_U_cold = {}
     diagnostica = []
 
-    for tipo, Q_U_max, destinazione in (
-        ("hot", Q_HU_max, F_U_hot),
-        ("cold", Q_CU_max, F_U_cold),
+    for tipo, destinazione in (
+        ("hot", F_U_hot),
+        ("cold", F_U_cold),
     ):
+
         for utility in utilities_HEN[tipo]:
+
+            # Le utility virtuali non sono utility fisiche BAR05.
             if utility.virtuale:
                 continue
-            delta_T_utility = abs(utility.T_in - utility.T_out)
-            if delta_T_utility <= tolleranza:
+
+            F_U = utility.F_U_kW_K
+
+            if F_U is None:
                 raise ValueError(
-                    f"Impossibile costruire F_U per {utility.codice}: "
-                    f"|T_in-T_out|={delta_T_utility}."
+                    f"L'utility fisica {utility.codice} non contiene "
+                    "'F_U_kW_K'. "
+                    "BAR05 richiede F_U come parametro per le Eq. (13)-(14)."
                 )
-            F_U = Q_U_max / delta_T_utility
+
+            F_U = float(F_U)
+
+            if F_U <= tolleranza:
+                raise ValueError(
+                    f"F_U_kW_K non valido per {utility.codice}: {F_U}"
+                )
+
             destinazione[utility.codice] = F_U
+
             diagnostica.append(
                 {
                     "codice": utility.codice,
                     "tipo": tipo,
                     "T_in_C": utility.T_in,
                     "T_out_C": utility.T_out,
-                    "Q_U_max_kW": Q_U_max,
-                    "delta_T_utility_K": delta_T_utility,
                     "F_U_kW_K": F_U,
                     "unita_F_U": "kW/K",
+                    "origine": "input fisico BAR05",
                     "verifica_dimensionale": (
-                        "F_U [kW/K] * delta_T_interval [K] = qhat_U [kW]"
+                        "F_U [kW/K] * DeltaT_interval [K] "
+                        "= upper bound qhat [kW]"
                     ),
                 }
             )
+
     return {
         "F_U_hot": F_U_hot,
         "F_U_cold": F_U_cold,
-        "Q_HU_max_kW": Q_HU_max,
-        "Q_CU_max_kW": Q_CU_max,
         "diagnostica": diagnostica,
     }
 
 def costruisci_insiemi_BAR05_HEN(insiemi_HEN, configurazione=None):
     """Deriva SH/SC, B, limiti e cardinalita massime della formulazione BAR05.
 
-    SH e SC contengono tutte e sole le process streams: utility fisiche,
-    utility virtuali e relative pseudo-correnti sono escluse dallo splitting.
+    SH e SC contengono le sole process streams dichiarate ``splittable``:
+    utility fisiche, utility virtuali e relative pseudo-correnti sono escluse.
+    Il default ``splittable=True`` conserva il comportamento dei JSON storici.
     B e letto da ``hens.multiple_matches`` e non contiene logica specifica per
     un test. Gli estremi sono ricavati da M_i/N_j, senza duplicare la
     partizione HENS.
@@ -4218,11 +4267,23 @@ def costruisci_insiemi_BAR05_HEN(insiemi_HEN, configurazione=None):
     VHU = insiemi_HEN.get("VHU", {})
     VCU = insiemi_HEN.get("VCU", {})
     SH = {
-        z: [i for i in insiemi_HEN["H"][z] if i not in HU[z] and i not in VHU.get(z, [])]
+        z: [
+            i
+            for i in insiemi_HEN["H"][z]
+            if i not in HU[z]
+            and i not in VHU.get(z, [])
+            and insiemi_HEN["correnti"][i].splittable
+        ]
         for z in Z
     }
     SC = {
-        z: [j for j in insiemi_HEN["C"][z] if j not in CU[z] and j not in VCU.get(z, [])]
+        z: [
+            j
+            for j in insiemi_HEN["C"][z]
+            if j not in CU[z]
+            and j not in VCU.get(z, [])
+            and insiemi_HEN["correnti"][j].splittable
+        ]
         for z in Z
     }
     hens = (configurazione or {}).get("hens", {})
@@ -4840,6 +4901,7 @@ def aggiungi_struttura_scambiatori_BAR05_HEN(
     parametri_utility_BAR05,
     blocchi,
     qL=1e-6,
+    framework="bar05",
 ):
     """Aggiunge BAR05 (11)-(42), incluse le definizioni cumulative per B.
 
@@ -4850,6 +4912,11 @@ def aggiungi_struttura_scambiatori_BAR05_HEN(
     """
     if not blocchi:
         return modello_HEN
+
+    framework = str(framework).strip().lower()
+    if framework not in {"bar05", "tra15"}:
+        raise ValueError("framework deve essere 'bar05' oppure 'tra15'.")
+
     mdl = modello_HEN["modello"]
     qhat_H = modello_HEN["qhat_H"]
     qhat_C = modello_HEN["qhat_C"]
@@ -4896,14 +4963,27 @@ def aggiungi_struttura_scambiatori_BAR05_HEN(
         elif i in F_U_hot:
             ub = F_U_hot[i] * delta_T_intervallo
             equazione = 13
-            tipo_limite = "physical_hot_utility"
+            tipo_limite = "physical_hot_utility_BAR05"
         elif i in VHU.get(z, []):
             ub = bound_virtual_hot_duty
             equazione = None
             tipo_limite = "virtual_hot_utility"
+        elif framework == "tra15" and i in insiemi_HEN["HU"][z]:
+            # Nei case study TRA15 le utility non sono parametrizzate con F_U.
+            # Serve soltanto un upper bound costante per l'implicazione qhat/Y.
+            # Il fabbisogno totale cold costituisce un Big-M energetico
+            # conservativo e non impone una capacità fisica aggiuntiva.
+            ub = bound_virtual_hot_duty
+            equazione = None
+            tipo_limite = "physical_hot_utility_TRA15_bigM"
         else:
             raise KeyError(f"F_U hot mancante per l'utility fisica {i}.")
-        prefisso = f"BAR05_{equazione}" if equazione is not None else "BAR05_VHU"
+        if equazione is not None:
+            prefisso = f"BAR05_{equazione}"
+        elif tipo_limite == "physical_hot_utility_TRA15_bigM":
+            prefisso = "TRA15_HU_bigM"
+        else:
+            prefisso = "BAR05_VHU"
         vincoli_A.extend(
             [
                 mdl.add_constraint(
@@ -4937,14 +5017,24 @@ def aggiungi_struttura_scambiatori_BAR05_HEN(
         elif j in F_U_cold:
             ub = F_U_cold[j] * delta_T_intervallo
             equazione = 14
-            tipo_limite = "physical_cold_utility"
+            tipo_limite = "physical_cold_utility_BAR05"
         elif j in VCU.get(z, []):
             ub = bound_virtual_cold_duty
             equazione = None
             tipo_limite = "virtual_cold_utility"
+        elif framework == "tra15" and j in insiemi_HEN["CU"][z]:
+            # Analogo Big-M energetico per la cold utility TRA15.
+            ub = bound_virtual_cold_duty
+            equazione = None
+            tipo_limite = "physical_cold_utility_TRA15_bigM"
         else:
             raise KeyError(f"F_U cold mancante per l'utility fisica {j}.")
-        prefisso = f"BAR05_{equazione}" if equazione is not None else "BAR05_VCU"
+        if equazione is not None:
+            prefisso = f"BAR05_{equazione}"
+        elif tipo_limite == "physical_cold_utility_TRA15_bigM":
+            prefisso = "TRA15_CU_bigM"
+        else:
+            prefisso = "BAR05_VCU"
         vincoli_A.extend(
             [
                 mdl.add_constraint(
@@ -5130,7 +5220,11 @@ def aggiungi_struttura_scambiatori_BAR05_HEN(
     return modello_HEN
 
 def aggiungi_consistenza_portate_BAR05_HEN(
-    modello_HEN, insiemi_HEN, insiemi_BAR05, delta_H_HEN, blocchi
+    modello_HEN,
+    insiemi_HEN,
+    insiemi_BAR05,
+    delta_H_HEN,
+    blocchi,
 ):
     """Aggiunge alpha e la flow-rate consistency BAR05 per B vuoto.
 
@@ -5187,6 +5281,47 @@ def aggiungi_consistenza_portate_BAR05_HEN(
         )
     modello_HEN.update({"alpha_C": alpha_C, "vincoli_BAR05_69_72": vincoli_69_72})
 
+    # BAR05 (68), hot streams not in SH: in an exchanger-internal
+    # interval the exchanger carries the full stream heat-capacity flow.
+    vincoli_68 = []
+    for k in modello_HEN["indici_qhat_H"]:
+        z, i, j, m = k
+        if i in insiemi_HEN["HU"][z] or i in insiemi_BAR05["SH"][z]:
+            continue
+        if (z, i, j, m - 1) not in set_H or (z, i, j, m + 1) not in set_H:
+            continue
+        vincoli_68.append(
+            mdl.add_constraint(
+                qhat_H[k]
+                >= (Y_H[k] - K_H[k] - Khat_H[k])
+                * delta_H_HEN["delta_H_H"][z, i, m],
+                ctname=f"BAR05_68_{z}_{i}_{j}_{m}",
+            )
+        )
+    modello_HEN["vincoli_BAR05_68"] = vincoli_68
+
+    # BAR05 (80), cold streams not in SC. The published domain excludes B.
+    vincoli_80 = []
+    for k in modello_HEN["indici_qhat_C"]:
+        z, i, j, n = k
+        if (
+            j in insiemi_HEN["CU"][z]
+            or j in insiemi_BAR05["SC"][z]
+            or (i, j) in insiemi_BAR05["B"]
+        ):
+            continue
+        if (z, i, j, n - 1) not in set_C or (z, i, j, n + 1) not in set_C:
+            continue
+        vincoli_80.append(
+            mdl.add_constraint(
+                qhat_C[k]
+                >= (Y_C[k] - K_C[k] - Khat_C[k])
+                * delta_H_HEN["delta_H_C"][z, j, n],
+                ctname=f"BAR05_80_{z}_{i}_{j}_{n}",
+            )
+        )
+    modello_HEN["vincoli_BAR05_80"] = vincoli_80
+
     def rH(k):
         z, i, j, m = k
         return qhat_H[k] / delta_H_HEN["delta_H_H"][z, i, m]
@@ -5239,12 +5374,20 @@ def aggiungi_consistenza_portate_BAR05_HEN(
         vincoli = []
         for k in coppie_C:
             z, i, j, n = k
+            if (i, j) in insiemi_BAR05["B"]:
+                continue
             p = (z, i, j, n - 1)
-            vincoli.extend(
-                [
-                    mdl.add_constraint(rC(k) <= rC(p) + 1 - alpha_C[k], ctname=f"BAR05_73_{z}_{i}_{j}_{n}"),
-                    mdl.add_constraint(rC(k) >= rC(p) - 1 + alpha_C[k], ctname=f"BAR05_74_{z}_{i}_{j}_{n}"),
-                ]
+            vincoli.append(
+                mdl.add_constraint(
+                    rC(k) <= rC(p) + 1 - alpha_C[k],
+                    ctname=f"BAR05_73_{z}_{i}_{j}_{n}",
+                )
+            )
+            vincoli.append(
+                mdl.add_constraint(
+                    rC(k) >= rC(p) - 1 + alpha_C[k],
+                    ctname=f"BAR05_74_{z}_{i}_{j}_{n}",
+                )
             )
         modello_HEN["vincoli_BAR05_73_74"] = vincoli
     if "4F" in blocchi:
@@ -5254,11 +5397,17 @@ def aggiungi_consistenza_portate_BAR05_HEN(
             if (i, j) in insiemi_BAR05["B"]:
                 continue
             p = (z, i, j, n - 1)
-            vincoli.extend(
-                [
-                    mdl.add_constraint(rC(k) >= rC(p) - (1 + Khat_C[p] + Khat_C[k] - K_C[p]), ctname=f"BAR05_75_{z}_{i}_{j}_{n}"),
-                    mdl.add_constraint(rC(k) <= rC(p) + (1 + K_C[p] + K_C[k] - Khat_C[k]), ctname=f"BAR05_76_{z}_{i}_{j}_{n}"),
-                ]
+            vincoli.append(
+                mdl.add_constraint(
+                    rC(k) >= rC(p) - (1 + Khat_C[p] + Khat_C[k] - K_C[p]),
+                    ctname=f"BAR05_75_{z}_{i}_{j}_{n}",
+                )
+            )
+            vincoli.append(
+                mdl.add_constraint(
+                    rC(k) <= rC(p) + (1 + K_C[p] + K_C[k] - Khat_C[k]),
+                    ctname=f"BAR05_76_{z}_{i}_{j}_{n}",
+                )
             )
         if insiemi_BAR05["B"] and "qtilde_C" in modello_HEN:
             qtilde_C = modello_HEN["qtilde_C"]
@@ -5410,7 +5559,12 @@ def aggiungi_scambiatori_multipli_BAR05_HEN(
     return modello_HEN
 
 def aggiungi_fattibilita_temperature_BAR05_HEN(
-    modello_HEN, insiemi_HEN, insiemi_BAR05, delta_H_HEN, blocchi, tolleranza=1e-9
+    modello_HEN,
+    insiemi_HEN,
+    insiemi_BAR05,
+    delta_H_HEN,
+    blocchi,
+    tolleranza=1e-9,
 ):
     """Aggiunge BAR05 (83)-(88), nella versione corretta del 2006.
 
@@ -5418,7 +5572,7 @@ def aggiungi_fattibilita_temperature_BAR05_HEN(
     Cp_m/Cp_m+1 delle equazioni corrette valgono uno. I delta_H/DeltaT
     rimanenti sono parametri e mantengono il modello lineare.
     """
-    if "5A" not in blocchi:
+    if not ({"5A", "5B"} & set(blocchi)):
         return modello_HEN
     mdl = modello_HEN["modello"]
     T = insiemi_HEN["T_intervallo"]
@@ -5431,6 +5585,45 @@ def aggiungi_fattibilita_temperature_BAR05_HEN(
 
     def dT(z, k):
         return T[z, k]["T_sup"] - T[z, k]["T_inf"]
+
+    # BAR05 (81)-(82): both process streams are non-splittable. Temperatures
+    # are already on the HENS scale, so the minimum approach is zero here.
+    vincoli_81_82 = []
+    for z, i, j in matches:
+        if (
+            i in insiemi_HEN["HU"][z]
+            or j in insiemi_HEN["CU"][z]
+            or i in insiemi_BAR05["SH"][z]
+            or j in insiemi_BAR05["SC"][z]
+        ):
+            continue
+        ms = sorted(k[3] for k in set_H if k[:3] == (z, i, j))
+        ns = sorted(k[3] for k in set_C if k[:3] == (z, i, j))
+        for m in ms:
+            hm = (z, i, j, m)
+            for n in ns:
+                cn = (z, i, j, n)
+                TmU, TmL = T[z, m]["T_sup"], T[z, m]["T_inf"]
+                TnU, TnL = T[z, n]["T_sup"], T[z, n]["T_inf"]
+                if TnL > TmU + tolleranza or TnU < TmL - tolleranza:
+                    continue
+                hot_term = qH[hm] * dT(z, m) / delta_H_HEN["delta_H_H"][z, i, m]
+                cold_term = qC[cn] * dT(z, n) / delta_H_HEN["delta_H_C"][z, j, n]
+                vincoli_81_82.extend(
+                    [
+                        mdl.add_constraint(
+                            TmL + hot_term
+                            >= TnL + cold_term - (2 - KH[hm] - KC[cn]) * TnU,
+                            ctname=f"BAR05_81_{z}_{i}_{j}_{m}_{n}",
+                        ),
+                        mdl.add_constraint(
+                            TmU - hot_term
+                            >= TnU - cold_term - (2 - KhatH[hm] - KhatC[cn]) * TnU,
+                            ctname=f"BAR05_82_{z}_{i}_{j}_{m}_{n}",
+                        ),
+                    ]
+                )
+    modello_HEN["vincoli_BAR05_81_82"] = vincoli_81_82
 
     vincoli_83_85 = []
     for z, i, j in matches:
@@ -5457,16 +5650,35 @@ def aggiungi_fattibilita_temperature_BAR05_HEN(
                 if den_c <= tolleranza or den_h <= tolleranza:
                     continue
                 slack = 2 - KH[hm] - KC[cn]
-                vincoli_83_85.extend(
-                    [
-                        mdl.add_constraint(KhatC[cn] <= slack, ctname=f"BAR05_83_{z}_{i}_{j}_{m}_{n}"),
-                        mdl.add_constraint(qC[cn] / den_c <= qC[cp] / dT(z, n + 1) + slack * delta_H_HEN["delta_H_C"][z, j, n] / den_c, ctname=f"BAR05_84_{z}_{i}_{j}_{m}_{n}"),
-                        mdl.add_constraint(qH[hm] / den_h >= qH[hp] / dT(z, m + 1) - slack * delta_H_HEN["delta_H_H"][z, i, m + 1] / dT(z, m + 1), ctname=f"BAR05_85_{z}_{i}_{j}_{m}_{n}"),
-                    ]
-                )
+                if "5A" in blocchi:
+                    vincoli_83_85.append(
+                        mdl.add_constraint(
+                            KhatC[cn] <= slack,
+                            ctname=f"BAR05_83_{z}_{i}_{j}_{m}_{n}",
+                        )
+                    )
+                if "5A" in blocchi:
+                    vincoli_83_85.append(
+                        mdl.add_constraint(
+                            qC[cn] / den_c
+                            <= qC[cp] / dT(z, n + 1)
+                            + slack * delta_H_HEN["delta_H_C"][z, j, n] / den_c,
+                            ctname=f"BAR05_84_{z}_{i}_{j}_{m}_{n}",
+                        )
+                    )
+                if "5A" in blocchi:
+                    vincoli_83_85.append(
+                        mdl.add_constraint(
+                            qH[hm] / den_h
+                            >= qH[hp] / dT(z, m + 1)
+                            - slack
+                            * delta_H_HEN["delta_H_H"][z, i, m + 1]
+                            / dT(z, m + 1),
+                            ctname=f"BAR05_85_{z}_{i}_{j}_{m}_{n}",
+                        )
+                    )
     modello_HEN["vincoli_BAR05_83_85"] = vincoli_83_85
-    diagnostica_5B = {eq for eq in ("5B_86", "5B_87", "5B_88") if eq in blocchi}
-    if "5B" not in blocchi and not diagnostica_5B:
+    if "5B" not in blocchi:
         return modello_HEN
     vincoli_86_88 = []
     for z, i, j in matches:
@@ -5493,15 +5705,15 @@ def aggiungi_fattibilita_temperature_BAR05_HEN(
                 if den_h <= tolleranza or den_c <= tolleranza:
                     continue
                 slack = 2 - KhatH[hm] - KhatC[cn]
-                if "5B" in blocchi or "5B_86" in diagnostica_5B:
+                if "5B" in blocchi:
                     vincoli_86_88.append(
                         mdl.add_constraint(KH[hm] <= slack, ctname=f"BAR05_86_{z}_{i}_{j}_{m}_{n}")
                     )
-                if "5B" in blocchi or "5B_87" in diagnostica_5B:
+                if "5B" in blocchi:
                     vincoli_86_88.append(
                         mdl.add_constraint(qH[hm] / den_h <= qH[hp] / dT(z, m - 1) + slack * delta_H_HEN["delta_H_H"][z, i, m] / den_h, ctname=f"BAR05_87_{z}_{i}_{j}_{m}_{n}")
                     )
-                if "5B" in blocchi or "5B_88" in diagnostica_5B:
+                if "5B" in blocchi:
                     vincoli_86_88.append(
                         mdl.add_constraint(qC[cn] / den_c >= qC[cp] / dT(z, n - 1) - slack * delta_H_HEN["delta_H_C"][z, j, n - 1] / dT(z, n - 1), ctname=f"BAR05_88_{z}_{i}_{j}_{m}_{n}")
                     )
@@ -5574,24 +5786,156 @@ def aggiungi_fattibilita_temperature_BAR05_HEN(
 
 # 6. PREPARA HEN RISOLVI HEN
 
-def prepara_HEN(
+BAR05_BLOCCHI_DEFAULT = frozenset(
+    {
+        "1", "2", "3A", "3B", "3C", "3D", "4A", "4B",
+        "4C", "4D", "4E", "4F", "5A", "5B", "7",
+    }
+)
+
+def aggiungi_Tout_flessibile_forzata_HEN(
+    modello_HEN,
+    insiemi_HEN,
+    flussi_flessibili,
+    target_per_stream,
+):
+    """Vincolo diagnostico per forzare T_out di una flexible stream.
+
+    Serve esclusivamente per sensitivity test; se target_per_stream è vuoto
+    non modifica il modello.
+    """
+
+    if not target_per_stream:
+        return modello_HEN
+
+    mdl = modello_HEN["modello"]
+    q = modello_HEN["q"]
+
+    VHU = {
+        codice
+        for z in insiemi_HEN["Z"]
+        for codice in insiemi_HEN.get("VHU", {}).get(z, [])
+    }
+    VCU = {
+        codice
+        for z in insiemi_HEN["Z"]
+        for codice in insiemi_HEN.get("VCU", {}).get(z, [])
+    }
+
+    vincoli = []
+
+    for codice, T_target in target_per_stream.items():
+
+        if codice not in flussi_flessibili:
+            raise ValueError(
+                f"{codice} non è una flexible stream."
+            )
+
+        dati = flussi_flessibili[codice]
+        T_target = float(T_target)
+
+        T_min = dati["T_out_min_C"]
+        T_max = dati["T_out_max_C"]
+        CP = dati["CP_kW_K"]
+
+        if not (T_min <= T_target <= T_max):
+            raise ValueError(
+                f"T_out forzata di {codice} fuori range: "
+                f"{T_target} °C non appartiene a [{T_min}, {T_max}]."
+            )
+
+        if dati["tipo"] == "hot":
+
+            Q_virtuale_target = CP * (T_target - T_min)
+
+            indici_virtuali = [
+                indice
+                for indice in modello_HEN["q"]
+                if indice[1] == codice and indice[3] in VCU
+            ]
+
+        else:
+
+            Q_virtuale_target = CP * (T_max - T_target)
+
+            indici_virtuali = [
+                indice
+                for indice in modello_HEN["q"]
+                if indice[3] == codice and indice[1] in VHU
+            ]
+
+        if not indici_virtuali:
+            raise RuntimeError(
+                f"Nessun match virtuale trovato per {codice}."
+            )
+
+        vincoli.append(
+            mdl.add_constraint(
+                mdl.sum(q[indice] for indice in indici_virtuali)
+                == Q_virtuale_target,
+                ctname=f"DIAG_Tout_{codice}_{T_target:g}",
+            )
+        )
+
+    modello_HEN["vincoli_Tout_flessibile_diagnostica"] = vincoli
+
+    return modello_HEN
+def _prepara_HEN_impl(
     sorgente,
-    bar05_blocchi=None,
-    bar05_qL=1e-6,
+    bar05_qL=None,
     amax_fisico_m2=None,
     delta_T_partition_max=None,
     numero_intervalli_min=None,
+    separa_al_pinch=None,
+    bar05_blocchi=None,
+    framework=None,
 ):
-    """Coordina una sola volta l intera pipeline HENS senza risolverla.
+    """Costruisce una formulazione HENS senza modificare il preprocessing Pinch.
 
-    Usa due partizioni finite: la prima determina le utility virtuali [1.48]-[1.49],
-    la seconda le include nel modello definitivo."""
+    Usa due partizioni finite: la prima determina le utility virtuali
+    [1.48]-[1.49], la seconda le include nel modello definitivo.
+
+    ``framework='bar05'`` usa il modello Barbaro-Bagajewicz/corrigendum.
+    ``framework='tra15'`` usa lo stesso modello base BAR05, come dichiarato
+    in Energy Integration §1.3.1.1, aggiungendo le estensioni TRA15 per
+    tecnologie multiple e flexible streams. Nei casi TRA15 F_U non è richiesto:
+    per le sole implicazioni qhat/Y delle utility si usa un Big-M energetico
+    conservativo, mentre i bilanci determinano comunque il duty effettivo.
+
+    Importante: le heat-transfer zones sono una scelta del designer.
+    Il case study TRA15 Test 1-4 viene quindi eseguito in una sola zona salvo
+    diversa dichiarazione esplicita nel JSON; non viene imposta automaticamente
+    la separazione sopra/sotto pinch.
+    """
     dati_pinch = (
-    esegui_analisi_pinch(sorgente)
-    if isinstance(sorgente, (str, Path))
-    else sorgente
+        esegui_analisi_pinch(sorgente)
+        if isinstance(sorgente, (str, Path))
+        else sorgente
     )
     configurazione = dict(dati_pinch["configurazione"])
+
+    # Il framework può essere passato esplicitamente dagli entry point
+    # prepara_HENS_BAR05/prepara_HENS_TRA15 oppure letto dal JSON tramite
+    # prepara_HEN(). Non viene mai dedotto da altri parametri del caso.
+    if framework is None:
+        framework = _framework_HENS_da_configurazione(configurazione)
+    else:
+        framework = str(framework).strip().lower()
+        if framework not in {"bar05", "tra15"}:
+            raise ValueError(
+                "framework HENS ammesso: 'bar05' oppure 'tra15'."
+            )
+
+        # Se il JSON dichiara anche il framework, deve essere coerente con
+        # l'entry point esplicito utilizzato.
+        hens_cfg = configurazione.get("hens", {})
+        if isinstance(hens_cfg, dict) and "framework" in hens_cfg:
+            framework_json = _framework_HENS_da_configurazione(configurazione)
+            if framework_json != framework:
+                raise ValueError(
+                    "Framework incoerente: il JSON dichiara "
+                    f"'{framework_json}' ma il codice ha richiesto '{framework}'."
+                )
     if delta_T_partition_max is not None:
         if delta_T_partition_max <= 0:
             raise ValueError("delta_T_partition_max deve essere > 0.")
@@ -5601,14 +5945,46 @@ def prepara_HEN(
             raise ValueError("numero_intervalli_min deve essere >= 1.")
         configurazione["numero_intervalli_min"] = int(numero_intervalli_min)
     hens = configurazione.get("hens", {})
-    separa_al_pinch = hens.get("separa_al_pinch", True)
+    if framework == "bar05" and hens.get("requires_non_isothermal_mixing", False):
+        raise NotImplementedError(
+            "Il caso richiede il non-isothermal mixing BAR05: mancano le "
+            "variabili qbar_H/qbar_C e le Eq. (7)-(10), con gli indici "
+            "corretti dal corrigendum. La funzionalita non viene approssimata."
+        )
+    # TRA15 estende il modello base BAR05: qL resta quindi il piccolo
+    # limite positivo usato nelle implicazioni qhat/Y del core topologico.
+    # F_U, invece, rimane richiesto soltanto dai casi BAR05 che lo dichiarano
+    # come parametro fisico delle Eq. (13)-(14).
+    if bar05_qL is None:
+        bar05_qL = hens.get("bar05_qL", hens.get("qL", 1e-6))
+    bar05_qL = float(bar05_qL)
+    if bar05_qL <= 0:
+        raise ValueError("bar05_qL/qL deve essere > 0.")
+    # La suddivisione in heat-transfer zones è una scelta del caso,
+    # non una conseguenza automatica della presenza del pinch.
+    #
+    # BAR05:
+    #   i benchmark dichiarano esplicitamente il numero di zone
+    #   (4S1/7SP4 -> 2; 10SP1 -> 1), quindi il JSON resta autoritativo.
+    #
+    # TRA15:
+    #   il case study Test 1-4 non impone la regola "no heat transfer
+    #   across pinch"; la formulazione descrive le zone come opzione del
+    #   designer. In assenza di un valore esplicito si usa quindi una sola
+    #   heat-transfer zone.
+    default_separa_al_pinch = True if framework == "bar05" else False
+    separa_al_pinch = (
+        hens.get("separa_al_pinch", default_separa_al_pinch)
+        if separa_al_pinch is None
+        else separa_al_pinch
+    )
     if type(separa_al_pinch) is not bool:
         raise ValueError("'hens.separa_al_pinch' deve essere true oppure false.")
     flussi_flessibili = costruisci_flussi_flessibili_HEN(configurazione)
     utilities_fisiche = costruisci_utilities_HEN(configurazione)
     argomenti_partizione = {
         "gcc": dati_pinch["gcc"],
-        "flussi": configurazione ["flussi"],
+        "flussi": configurazione["flussi"],
         "delta_T_min": configurazione["delta_T_min"],
         "pinch_traslati": dati_pinch["pinch_traslati_C"],
         "delta_T_partition_max": configurazione["delta_T_partition_max"],
@@ -5622,11 +5998,11 @@ def prepara_HEN(
     utilities_virtuali = costruisci_utilities_virtuali_HEN(
         intervalli=partizione_preliminare,
         flussi_flessibili=flussi_flessibili,
-        flussi=configurazione ["flussi"],
+        flussi=configurazione["flussi"],
         delta_T_min=configurazione["delta_T_min"],
         delta_T_partition_max=configurazione["delta_T_partition_max"],
     )
-    codici_esistenti = {f.codice for f in configurazione ["flussi"]} | {
+    codici_esistenti = {f.codice for f in configurazione["flussi"]} | {
         u.codice for tipo in ("hot", "cold") for u in utilities_fisiche[tipo]
     }
     collisioni = codici_esistenti & {
@@ -5640,12 +6016,43 @@ def prepara_HEN(
         tipo: list(utilities_fisiche[tipo]) + list(utilities_virtuali[tipo])
         for tipo in ("hot", "cold")
     }
-    parametri_utility_BAR05 = calcola_F_U_BAR05_HEN(
-        configurazione, utilities_HEN
+    parametri_utility_BAR05 = (
+        calcola_F_U_BAR05_HEN(configurazione, utilities_HEN)
+        if framework == "bar05"
+        else {"F_U_hot": {}, "F_U_cold": {}}
     )
     intervalli_HEN = crea_partizione_HEN(
         utilities=utilities_HEN, **argomenti_partizione
     )
+
+
+    print("\n=== PARTIZIONE HENS ===")
+
+    totale = 0
+
+    for z, intervalli_z in intervalli_HEN.items():
+        print(f"\nZona {z}: {len(intervalli_z)} intervalli")
+
+        for m, intervallo in enumerate(intervalli_z, start=1):
+
+            if isinstance(intervallo, dict):
+                T_sup = intervallo["T_sup"]
+                T_inf = intervallo["T_inf"]
+            else:
+                T_sup, T_inf = intervallo[:2]
+
+            print(
+                f"  m={m:3d} | "
+                f"{T_sup:10.4f} -> {T_inf:10.4f} °C | "
+                f"ΔT={T_sup - T_inf:10.4f}"
+            )
+
+        totale += len(intervalli_z)
+
+    print(f"\nINTERVALLI TOTALI = {totale}")
+    print(f"HEAT-TRANSFER ZONES = {len(intervalli_HEN)}")
+    print(f"SEPARAZIONE AL PINCH = {separa_al_pinch}")
+    print("========================\n")
     tecnologie_HEN = costruisci_tecnologie_HEN(configurazione)
     aggiungi_tecnologia_virtuale_HEN(tecnologie_HEN, utilities_HEN, flussi_flessibili)
     if amax_fisico_m2 is not None:
@@ -5663,15 +6070,35 @@ def prepara_HEN(
         match_permessi=match_permessi,
         flexible_streams=flussi_flessibili,
     )
-    insiemi_BAR05 = costruisci_insiemi_BAR05_HEN(insiemi_HEN, configurazione)
+    # TRA15 è un'estensione del modello base BAR05. Gli insiemi topologici
+    # SH/SC/B servono quindi anche a TRA15, in particolare quando il JSON
+    # dichiara multiple_matches.
+    insiemi_BAR05 = costruisci_insiemi_BAR05_HEN(
+        insiemi_HEN, configurazione
+    )
     indici_q = genera_indici_q_HEN(insiemi_HEN)
     delta_H_HEN = calcola_delta_H_HEN(insiemi_HEN)
-    modello_HEN = crea_modello_bilanci_HEN(insiemi_HEN, indici_q, delta_H_HEN)
-    blocchi_BAR05 = set() if bar05_blocchi is None else set(bar05_blocchi)
+    modello_HEN = crea_modello_bilanci_HEN(
+        insiemi_HEN,
+        indici_q,
+        delta_H_HEN,
+        nome_modello=("HENS_BAR05" if framework == "bar05" else "HENS_TRA15"),
+    )
+    # Il capitolo TRA15/Energy Integration dichiara esplicitamente che il
+    # modello proposto estende BAR05. Perciò il core topologico BAR05
+    # (qhat, Y, K/Khat, split-flow consistency, temperature feasibility e
+    # multiple matches) è comune ai due framework. La differenza TRA15 resta
+    # nelle estensioni: tecnologie multiple e flexible streams.
+    blocchi_BAR05 = (
+        set(BAR05_BLOCCHI_DEFAULT)
+        if bar05_blocchi is None
+        else set(bar05_blocchi)
+    )
+
     insiemi_BAR05_attivi = dict(insiemi_BAR05)
+
+    # Le multiple matches devono entrare atomicamente con il blocco 7.
     if "7" not in blocchi_BAR05:
-        # B resta disponibile nella diagnostica fin dallo STEP 1, ma le sue
-        # equazioni diventano attive atomicamente soltanto nello STEP 7.
         insiemi_BAR05_attivi["B"] = set()
         insiemi_BAR05_attivi["Emax"] = {}
     if "2" in blocchi_BAR05:
@@ -5698,6 +6125,7 @@ def prepara_HEN(
             parametri_utility_BAR05,
             blocchi_struttura,
             qL=bar05_qL,
+            framework=framework,
         )
     if "7" in blocchi_BAR05:
         aggiungi_scambiatori_multipli_BAR05_HEN(
@@ -5705,11 +6133,19 @@ def prepara_HEN(
         )
     if "4A" in blocchi_BAR05:
         aggiungi_consistenza_portate_BAR05_HEN(
-            modello_HEN, insiemi_HEN, insiemi_BAR05_attivi, delta_H_HEN, blocchi_BAR05
+            modello_HEN,
+            insiemi_HEN,
+            insiemi_BAR05_attivi,
+            delta_H_HEN,
+            blocchi_BAR05,
         )
-    if "5A" in blocchi_BAR05:
+    if {"5A", "5B"} & blocchi_BAR05:
         aggiungi_fattibilita_temperature_BAR05_HEN(
-            modello_HEN, insiemi_HEN, insiemi_BAR05_attivi, delta_H_HEN, blocchi_BAR05
+            modello_HEN,
+            insiemi_HEN,
+            insiemi_BAR05_attivi,
+            delta_H_HEN,
+            blocchi_BAR05,
         )
     aggiungi_vincoli_area_HEN(
         modello_HEN,
@@ -5719,8 +6155,22 @@ def prepara_HEN(
         insiemi_BAR05=insiemi_BAR05_attivi,
         delta_H_HEN=delta_H_HEN,
     )
+    target_flessibili = hens.get(
+            "diagnostic_force_flexible_Tout_C",
+            {}
+        )
+
+    aggiungi_Tout_flessibile_forzata_HEN(
+            modello_HEN,
+            insiemi_HEN,
+            flussi_flessibili,
+            target_flessibili,
+        )
+
     aggiungi_obiettivo_TAC_HEN(modello_HEN, utilities_HEN, tecnologie_HEN)
+    
     return {
+        "framework": framework,
         "dati_pinch": dati_pinch,
         "configurazione": configurazione,
         "flussi_flessibili": flussi_flessibili,
@@ -5730,6 +6180,8 @@ def prepara_HEN(
         "insiemi_HEN": insiemi_HEN,
         "insiemi_BAR05": insiemi_BAR05,
         "bar05_blocchi": sorted(blocchi_BAR05),
+        "bar05_qL": bar05_qL,
+        "separa_al_pinch": separa_al_pinch,
         "indici_q": indici_q,
         "delta_H_HEN": delta_H_HEN,
         "parametri_area": parametri_area,
@@ -5737,12 +6189,151 @@ def prepara_HEN(
         "modello_HEN": modello_HEN,
     }
 
+
+def prepara_HENS_BAR05(sorgente, **opzioni):
+    """Entry point esplicito per HENS BAR05/corrigendum."""
+    return _prepara_HEN_impl(sorgente, framework="bar05", **opzioni)
+
+
+def prepara_HENS_TRA15(sorgente, **opzioni):
+    """Entry point esplicito per HENS TRA15/Energy Integration."""
+    return _prepara_HEN_impl(sorgente, framework="tra15", **opzioni)
+
+
+def _framework_HENS_da_configurazione(configurazione):
+    """Legge il framework HENS dichiarato esplicitamente nel file JSON.
+
+    Il framework NON viene inferito da altri campi dell'input: ogni caso deve
+    dichiarare manualmente uno dei due valori ammessi:
+
+        "hens": {
+            "framework": "bar05"
+        }
+
+    oppure:
+
+        "hens": {
+            "framework": "tra15"
+        }
+
+    Questo evita che la presenza/assenza di parametri specifici (per esempio
+    F_U_kW_K) instradi accidentalmente un caso verso la formulazione sbagliata.
+    """
+    hens = configurazione.get("hens")
+
+    if not isinstance(hens, dict):
+        raise ValueError(
+            "La configurazione deve contenere una sezione 'hens' di tipo oggetto."
+        )
+
+    if "framework" not in hens:
+        raise ValueError(
+            "Framework HENS non specificato. Aggiungere nel JSON "
+            "'hens.framework': 'bar05' oppure 'tra15'."
+        )
+
+    valore = str(hens["framework"]).strip().lower()
+
+    if valore not in {"bar05", "tra15"}:
+        raise ValueError(
+            "Valore non valido per 'hens.framework'. "
+            "Sono ammessi esclusivamente 'bar05' oppure 'tra15'."
+        )
+
+    return valore
+
+
+def prepara_HEN(
+    sorgente,
+    bar05_qL=None,
+    amax_fisico_m2=None,
+    delta_T_partition_max=None,
+    numero_intervalli_min=None,
+    separa_al_pinch=None,
+    bar05_blocchi=None,
+):
+    """Dispatcher retrocompatibile verso HENS BAR05 oppure HENS TRA15."""
+    dati_pinch = (
+        esegui_analisi_pinch(sorgente)
+        if isinstance(sorgente, (str, Path))
+        else sorgente
+    )
+    framework = _framework_HENS_da_configurazione(dati_pinch["configurazione"])
+    return _prepara_HEN_impl(
+        dati_pinch,
+        bar05_qL=bar05_qL,
+        amax_fisico_m2=amax_fisico_m2,
+        delta_T_partition_max=delta_T_partition_max,
+        numero_intervalli_min=numero_intervalli_min,
+        separa_al_pinch=separa_al_pinch,
+        bar05_blocchi=bar05_blocchi,
+        framework=framework,
+    )
+
+def calcola_confronto_benchmark_HEN(configurazione, simulato):
+    """Costruisce il confronto post-solve; i benchmark non entrano nel MILP."""
+    hens = configurazione.get("hens", {})
+    benchmark = dict(hens.get("benchmark", {}))
+    if "TAC_kUSD_year" not in benchmark and "benchmark_TAC_kUSD_year" in hens:
+        benchmark["TAC_kUSD_year"] = hens["benchmark_TAC_kUSD_year"]
+    if "area_total_m2" not in benchmark and "benchmark_area_total_m2" in hens:
+        benchmark["area_total_m2"] = hens["benchmark_area_total_m2"]
+    if "numero_exchanger" not in benchmark and "benchmark_exchangers" in hens:
+        benchmark["numero_exchanger"] = len(hens["benchmark_exchangers"])
+
+    valori_simulati = {
+        "TAC_kUSD_year": simulato["TAC_USD_year"] / 1000.0,
+        "area_total_m2": simulato["area_total_m2"],
+        "numero_exchanger": simulato["numero_exchanger"],
+        "numero_shell": simulato["numero_shell"],
+        "HU_kW": simulato["HU_kW"],
+        "CU_kW": simulato["CU_kW"],
+        "numero_variabili": simulato["numero_variabili"],
+        "numero_binarie": simulato["numero_binarie"],
+        "numero_vincoli": simulato["numero_vincoli"],
+        "numero_intervalli": simulato["numero_intervalli"],
+    }
+    etichette = {
+        "TAC_kUSD_year": "TAC (kUSD/year)",
+        "area_total_m2": "Area totale (m2)",
+        "numero_exchanger": "Numero exchanger",
+        "numero_shell": "Numero shell",
+        "HU_kW": "Hot utility (kW)",
+        "CU_kW": "Cold utility (kW)",
+        "numero_variabili": "Variabili MILP",
+        "numero_binarie": "Variabili binarie MILP",
+        "numero_vincoli": "Vincoli MILP",
+        "numero_intervalli": "Intervalli",
+    }
+    righe = []
+    for chiave, etichetta in etichette.items():
+        if chiave not in benchmark:
+            continue
+        fonte = float(benchmark[chiave])
+        valore = float(valori_simulati[chiave])
+        errore = valore - fonte
+        righe.append(
+            {
+                "metrica": etichetta,
+                "fonte": fonte,
+                "simulato": valore,
+                "errore_assoluto": abs(errore),
+                "errore_relativo_percento": None if abs(fonte) < 1e-12 else 100.0 * errore / fonte,
+            }
+        )
+    return {
+        "fonte": hens.get("fonte_benchmark", configurazione.get("fonte")),
+        "righe": righe,
+    }
+
+
 def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
     """Risolve il MILP HENS e ricostruisce risultati strutturati."""
 
     modello = preparazione["modello_HEN"]
     delta_T_min = preparazione["configurazione"]["delta_T_min"]
     mdl = modello["modello"]
+    
     soluzione = mdl.solve(log_output=log_output)
     if soluzione is None:
         raise RuntimeError(
@@ -5880,7 +6471,10 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
             TinH = ToutH = TinC = ToutC = None
             if i in insiemi["HU"][z]:
                 TinH, ToutH = corrente_h.T_in, corrente_h.T_out
-            elif fH and hb[3] != he[3]:
+            elif fH and hb[3] == he[3]:
+                TinH = insiemi["T_intervallo"][z, hb[3]]["T_sup"]
+                ToutH = insiemi["T_intervallo"][z, he[3]]["T_inf"]
+            elif fH:
                 cp = corrente_h.CP
                 T_hb_L = insiemi["T_intervallo"][z, hb[3]]["T_inf"]
                 T_he_U = insiemi["T_intervallo"][z, he[3]]["T_sup"]
@@ -5892,7 +6486,16 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
                 ToutH = T_he_U - q_end / (fH * cp)
             if j in insiemi["CU"][z]:
                 TinC, ToutC = corrente_c.T_in, corrente_c.T_out
-            elif fC and cb[3] != ce[3]:
+            elif fC and cb[3] == ce[3]:
+                TinC = converti_temperatura(
+                    insiemi["T_intervallo"][z, cb[3]]["T_inf"],
+                    "cold", delta_T_min, "hens", "reale",
+                )
+                ToutC = converti_temperatura(
+                    insiemi["T_intervallo"][z, ce[3]]["T_sup"],
+                    "cold", delta_T_min, "hens", "reale",
+                )
+            elif fC:
                 cp = corrente_c.CP
                 T_cb_L = converti_temperatura(
                                             insiemi["T_intervallo"][z, cb[3]]["T_inf"],
@@ -6024,18 +6627,8 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
         preparazione["configurazione"].get("hens", {}).get("benchmark_TAC_kUSD_year")
     )
     TAC = valore(modello["TAC"])
-    confronto = (
-        None
-        if benchmark is None
-        else {
-            "PDF_kUSD_year": float(benchmark),
-            "modello_kUSD_year": TAC / 1000.0,
-            "errore_assoluto_kUSD_year": TAC / 1000.0 - float(benchmark),
-            "errore_percentuale": 100.0
-            * (TAC / 1000.0 - float(benchmark))
-            / float(benchmark),
-        }
-    )
+    
+    
 
     controlli_BAR05 = {}
     if "qhat_H" in modello:
@@ -6132,26 +6725,48 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
                 f"violazione massima={massimo_violazione:.6e} kW."
             )
 
+        # Le Eq. (13)-(14) con F_U sono diagnosticate solo quando F_U è
+        # realmente presente (framework BAR05). In TRA15 i limiti utility
+        # qhat/Y usano invece un Big-M energetico conservativo.
         F_U_hot = preparazione["parametri_utility_BAR05"]["F_U_hot"]
         F_U_cold = preparazione["parametri_utility_BAR05"]["F_U_cold"]
-        for codice, record in dettagli_13_14.items():
-            if record["min_upper_slack_Y1_kW"] == float("inf"):
-                record["min_upper_slack_Y1_kW"] = None
-            if codice in F_U_hot:
-                F_soluzione = valore(modello["F_H"][codice])
-                Q_massimo = preparazione["parametri_utility_BAR05"]["Q_HU_max_kW"]
-            else:
-                F_soluzione = valore(modello["F_C"][codice])
-                Q_massimo = preparazione["parametri_utility_BAR05"]["Q_CU_max_kW"]
-            record.update(
-                {
-                    "F_solution_kW_K": F_soluzione,
-                    "Q_solution_kW": duty_utilities[codice],
-                    "Q_U_max_kW": Q_massimo,
-                    "utilization_ratio": F_soluzione / record["F_U_kW_K"],
-                }
-            )
-        controlli_BAR05["BAR05_13_14_utility"] = dettagli_13_14
+
+        if F_U_hot or F_U_cold:
+            utilities_per_codice = {
+                utility.codice: utility
+                for tipo in ("hot", "cold")
+                for utility in preparazione["utilities_HEN"][tipo]
+                if not utility.virtuale
+            }
+
+            for codice, record in dettagli_13_14.items():
+                if record["min_upper_slack_Y1_kW"] == float("inf"):
+                    record["min_upper_slack_Y1_kW"] = None
+
+                if codice in F_U_hot:
+                    F_soluzione = valore(modello["F_H"][codice])
+                    F_U = F_U_hot[codice]
+                elif codice in F_U_cold:
+                    F_soluzione = valore(modello["F_C"][codice])
+                    F_U = F_U_cold[codice]
+                else:
+                    continue
+
+                utility = utilities_per_codice[codice]
+                delta_T_utility = abs(utility.T_in - utility.T_out)
+                Q_massimo = F_U * delta_T_utility
+
+                record.update(
+                    {
+                        "F_solution_kW_K": F_soluzione,
+                        "Q_solution_kW": duty_utilities[codice],
+                        "Q_U_max_kW": Q_massimo,
+                        "utilization_ratio": F_soluzione / F_U,
+                    }
+                )
+            controlli_BAR05["BAR05_13_14_utility"] = dettagli_13_14
+        else:
+            controlli_BAR05["TRA15_utility_qhat_bounds"] = "Big-M energetico conservativo"
     residui_alpha = {"H": [], "C": []}
     for lato, alpha_nome, qhat_nome, delta_nome, posizione_stream in (
         ("H", "alpha_H", "qhat_H", "delta_H_H", 1),
@@ -6188,7 +6803,27 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
         for t in tecnologie.values() if t.virtuale
     )
 
+    configurazione_effettiva = {
+        "framework": preparazione["framework"],
+        "delta_T_min_C": preparazione["configurazione"]["delta_T_min"],
+        "delta_T_partition_max_C": preparazione["configurazione"][
+            "delta_T_partition_max"
+        ],
+        "numero_intervalli_min": preparazione["configurazione"][
+            "numero_intervalli_min"
+        ],
+        "separa_al_pinch": preparazione["separa_al_pinch"],
+        "Amax_m2_per_tecnologia": {
+            codice: tecnologia.A_max_m2
+            for codice, tecnologia in tecnologie.items()
+            if not tecnologia.virtuale
+        },
+        "qL": preparazione["bar05_qL"],
+        "bar05_blocchi": preparazione["bar05_blocchi"],
+    }
+
     return {
+        "framework": preparazione["framework"],
         "soluzione": soluzione,
         "status": mdl.solve_details.status,
         "numero_zone": len(insiemi["Z"]),
@@ -6202,6 +6837,7 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
         "numero_binarie": sum(1 for _ in mdl.iter_binary_vars()),
         "numero_vincoli": mdl.number_of_constraints,
         "tempo_CPLEX_s": mdl.solve_details.time,
+        "gap_CPLEX": mdl.solve_details.gap,
         "costo_HU_USD_year": valore(modello["costo_hot_utility"]),
         "costo_CU_USD_year": valore(modello["costo_cold_utility"]),
         "costo_fisso_HEX_USD_year": valore(modello["costo_fisso_HEX"]),
@@ -6213,6 +6849,10 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
         "scambiatori_fisici": scambiatori,
         "numero_exchanger_fisici": len(scambiatori),
         "numero_shell_fisiche": sum(x["U"] for x in scambiatori),
+        "hot_utility_totale_kW": Q_HU_fisica,
+        "cold_utility_totale_kW": Q_CU_fisica,
+        "calore_hot_process_totale_kW": Q_hot_effettivo,
+        "calore_cold_process_totale_kW": Q_cold_effettivo,
         "duty_exchanger_individuale_kW": duty_exchanger_individuale,
         "temperature_exchangers": temperature_exchangers,
         "virtual_matches": match_virtuali,
@@ -6221,7 +6861,7 @@ def risolvi_HEN(preparazione, log_output=False, tolleranza=1e-7):
             t: sorted(tecnologia.matches) for t, tecnologia in tecnologie.items()
         },
         "residuo_bilancio_energia_kW": residuo_bilancio,
-        "confronto_benchmark": confronto,
+        "configurazione_HENS": configurazione_effettiva,
         "controlli_BAR05": controlli_BAR05,
     }
 
@@ -6237,85 +6877,113 @@ def _sequenze_match_BAR05(indici, posizione_intervallo):
 # 7. OUTPUT HENS
 
 def stampa_risultati_HEN(risultati):
-    """Stampa il report unico dei casi HENS."""
+    """Stampa un riepilogo numerico generale e compatto della soluzione HENS."""
 
-    print("\nMODELLO")
+    separatore = "=" * 60
+    scambiatori = sorted(
+        risultati["scambiatori_fisici"],
+        key=lambda x: (
+            x["hot"], x["cold"], x["zona"], x["tecnologia"],
+            x.get("exchanger_id", 1),
+        ),
+    )
+
+    def titolo(testo):
+        print(f"\n{separatore}\n{testo}\n{separatore}")
+
+    def temperatura(valore):
+        return "n.d." if valore is None else f"{valore:.3f}"
+
+    def riga_exchanger(dati):
+        return (
+            f"{dati['hot']}-{dati['cold']} | {dati['tecnologia']} | "
+            f"z={dati['zona']} | Q={dati['duty_kW']:.3f} kW | "
+            f"A={dati['area_m2']:.3f} m² | U={dati['U']:.0f} | "
+            f"Th: {temperatura(dati.get('hot_Tin_C'))} -> "
+            f"{temperatura(dati.get('hot_Tout_C'))} °C | "
+            f"Tc: {temperatura(dati.get('cold_Tin_C'))} -> "
+            f"{temperatura(dati.get('cold_Tout_C'))} °C"
+        )
+
+    titolo("MODELLO HENS")
+    print(f"Framework: {risultati.get('framework', 'n.d.').upper()}")
+    print(f"Status CPLEX: {risultati['status']}")
+    print(f"Gap: {risultati['gap_CPLEX']:.6e}")
     print(f"Zone: {risultati['numero_zone']}")
     print(f"Intervalli: {risultati['numero_intervalli']}")
-    print(
-        f"Variabili q/A/U: {risultati['numero_q']}/"
-        f"{risultati['numero_A']}/{risultati['numero_U']}"
-    )
-    print(
-        f"Totale variabili/vincoli: {risultati['numero_variabili']}/"
-        f"{risultati['numero_vincoli']}"
-    )
-    print(f"Status CPLEX: {risultati['status']}")
+    print(f"Variabili: {risultati['numero_variabili']}")
+    print(f"Vincoli: {risultati['numero_vincoli']}")
+    print(f"Tempo solve: {risultati['tempo_CPLEX_s']:.3f} s")
 
-    print("\nECONOMIA")
-    for etichetta, chiave in (
-        ("Costo HU", "costo_HU_USD_year"),
-        ("Costo CU", "costo_CU_USD_year"),
-        ("Costo fisso HEX", "costo_fisso_HEX_USD_year"),
-        ("Costo area HEX", "costo_area_HEX_USD_year"),
-    ):
-        print(f"{etichetta}: {risultati[chiave]:,.2f} USD/year")
+    titolo("ECONOMIA")
+    print(f"Costo HU: {risultati['costo_HU_USD_year']:,.2f} USD/year")
+    print(f"Costo CU: {risultati['costo_CU_USD_year']:,.2f} USD/year")
+    print(
+        "Costo fisso HEX: "
+        f"{risultati['costo_fisso_HEX_USD_year']:,.2f} USD/year"
+    )
+    print(
+        "Costo area HEX: "
+        f"{risultati['costo_area_HEX_USD_year']:,.2f} USD/year"
+    )
     print(f"TAC: {risultati['TAC_USD_year']:,.2f} USD/year")
-    print(f"TAC: {risultati['TAC_USD_year'] / 1000.0:.3f} kUSD/year")
+    print(f"TAC in kUSD/year: {risultati['TAC_USD_year'] / 1000.0:.6f}")
 
-    print("\nUTILITIES FISICHE")
-    for codice, duty in risultati["utilities_fisiche_kW"].items():
-        print(f"{codice}: {duty:.3f} kW")
+    titolo("UTILITIES")
+    print(f"HU totale: {risultati['hot_utility_totale_kW']:.6f} kW")
+    print(f"CU totale: {risultati['cold_utility_totale_kW']:.6f} kW")
+    for codice, duty in sorted(risultati["utilities_fisiche_kW"].items()):
+        print(f"{codice} | duty={duty:.6f} kW")
 
-    print("\nFLEXIBLE STREAMS")
-    if not risultati["flexible_streams"]:
-        print("Nessuna")
-    for dati in risultati["flexible_streams"]:
+    titolo("RETE HEN")
+    print(f"Numero exchanger: {risultati['numero_exchanger_fisici']}")
+    print(f"Numero shell: {risultati['numero_shell_fisiche']:.0f}")
+    print(f"Area totale: {sum(x['area_m2'] for x in scambiatori):.3f} m²")
+    for dati in scambiatori:
+        print(riga_exchanger(dati))
+
+    titolo("DUTY AGGREGATI PER MATCH")
+    gruppi = {}
+    for dati in scambiatori:
+        gruppi.setdefault((dati["hot"], dati["cold"]), []).append(dati)
+    if not gruppi:
+        print("Nessun exchanger fisico attivo")
+    for (hot, cold), sezioni in sorted(gruppi.items()):
+        duty_totale = sum(x["duty_kW"] for x in sezioni)
         print(
-            f"{dati['codice']} ({dati['tipo']}): "
-            f"Tout [{dati['T_out_min_C']:.2f}, {dati['T_out_max_C']:.2f}] C, "
-            f"ottima {dati['T_out_ottima_C']:.3f} C; "
-            f"surplus totale/usato/virtuale "
-            f"{dati['Q_surplus_totale_kW']:.3f}/"
-            f"{dati['Q_surplus_usato_nel_processo_kW']:.3f}/"
-            f"{dati['Q_surplus_virtuale_kW']:.3f} kW"
+            f"{hot}-{cold} = {duty_totale:.6f} kW | "
+            f"exchanger={len(sezioni)}"
         )
+        if len(sezioni) > 1:
+            for numero, dati in enumerate(sezioni, 1):
+                print(
+                    f"  sezione {numero}: z={dati['zona']} | "
+                    f"{dati['tecnologia']} | Q={dati['duty_kW']:.6f} kW | "
+                    f"A={dati['area_m2']:.6f} m² | U={dati['U']:.0f}"
+                )
 
-    print("\nSCAMBIATORI FISICI")
-    for dati in risultati["scambiatori_fisici"]:
+    titolo("BILANCI")
+    q_hot = risultati["calore_hot_process_totale_kW"]
+    q_cold = risultati["calore_cold_process_totale_kW"]
+    hu = risultati["hot_utility_totale_kW"]
+    cu = risultati["cold_utility_totale_kW"]
+    print(f"Calore totale hot process: {q_hot:.6f} kW")
+    print(f"Calore totale cold process: {q_cold:.6f} kW")
+    print(f"HU: {hu:.6f} kW")
+    print(f"CU: {cu:.6f} kW")
+    print(f"HU-CU: {hu - cu:+.6f} kW")
+    print(
+        "Residuo energetico globale: "
+        f"{risultati['residuo_bilancio_energia_kW']:+.6e} kW"
+    )
+
+    titolo("TEMPERATURE")
+    for dati in scambiatori:
         print(
-            f"Zona {dati['zona']} | {dati['hot']} -> {dati['cold']} | "
-            f"{dati['tecnologia']} | U={dati['U']:.0f} | "
-            f"A={dati['area_m2']:.3f} m2 | Q={dati['duty_kW']:.3f} kW"
+            f"{dati['hot']}-{dati['cold']} | {dati['tecnologia']} | "
+            f"z={dati['zona']} | "
+            f"Th: {temperatura(dati.get('hot_Tin_C'))} -> "
+            f"{temperatura(dati.get('hot_Tout_C'))} °C | "
+            f"Tc: {temperatura(dati.get('cold_Tin_C'))} -> "
+            f"{temperatura(dati.get('cold_Tout_C'))} °C"
         )
-
-    print("\nVIRTUAL MATCHES")
-    if not risultati["virtual_matches"]:
-        print("Nessuno")
-    for dati in risultati["virtual_matches"]:
-        print(
-            f"Zona {dati['zona']} | {dati['hot']} -> {dati['cold']} | "
-            f"Q={dati['duty_kW']:.3f} kW"
-        )
-    for codice, dati in risultati["utilities_virtuali"].items():
-        print(
-            f"{codice} ({dati['tipo']}): HEN {dati['T_in_HEN_C']:.2f} -> "
-            f"{dati['T_out_HEN_C']:.2f} C; reali {dati['T_in_C']:.2f} -> "
-            f"{dati['T_out_C']:.2f} C; duty={dati['duty_kW']:.3f} kW"
-        )
-
-    print("\nBILANCIO ENERGETICO")
-    print(f"Residuo globale: {risultati['residuo_bilancio_energia_kW']:+.6e} kW")
-
-    confronto = risultati["confronto_benchmark"]
-    if confronto:
-        print("\nCONFRONTO BENCHMARK")
-        print(f"PDF: {confronto['PDF_kUSD_year']:.3f} kUSD/year")
-        print(f"Modello: {confronto['modello_kUSD_year']:.3f} kUSD/year")
-        print(
-            f"Scostamento: {confronto['errore_assoluto_kUSD_year']:+.3f} "
-            f"kUSD/year ({confronto['errore_percentuale']:+.2f}%)"
-        )
-
-
-

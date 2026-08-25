@@ -1,0 +1,90 @@
+{
+  "nome": "BAR05 - Problem EX2 (NON ANCORA SUPPORTATO)",
+  "fonte": "BAR05, Tables 17-20 and Figure 18",
+  "support_status": "NON ANCORA SUPPORTATO",
+  "delta_T_min": 10.0,
+  "delta_T_max": 4.0,
+  "delta_T_partition_max": 11.0,
+  "numero_intervalli_min": 1,
+  "hens": {
+    "requires_non_isothermal_mixing": true,
+    "missing_formulation": [
+      "qbar_H with corrigendum indices",
+      "qbar_C with corrigendum indices",
+      "BAR05 Eq. (7)-(10)"
+    ],
+    "framework": "bar05"
+  },
+  "flussi": [
+    {
+      "codice": "H1",
+      "nome": "I1",
+      "tipo": "hot",
+      "T_in": 100.0,
+      "T_out": 30.0,
+      "heat_load_kW": 3616.6666666666665,
+      "h_W_m2K": 111.11111111111111,
+      "disponibile": true
+    },
+    {
+      "codice": "H2",
+      "nome": "I2",
+      "tipo": "hot",
+      "T_in": 75.0,
+      "T_out": 30.0,
+      "heat_load_kW": 2100.0,
+      "h_W_m2K": 111.11111111111111,
+      "disponibile": true
+    },
+    {
+      "codice": "H3",
+      "nome": "I3",
+      "tipo": "hot",
+      "T_in": 50.0,
+      "T_out": 30.0,
+      "heat_load_kW": 133.33333333333334,
+      "h_W_m2K": 111.11111111111111,
+      "disponibile": true
+    },
+    {
+      "codice": "C1",
+      "nome": "J1",
+      "tipo": "cold",
+      "T_in": 20.0,
+      "T_out": 100.0,
+      "heat_load_kW": 4666.666666666667,
+      "h_W_m2K": 111.11111111111111,
+      "disponibile": true
+    },
+    {
+      "codice": "C2",
+      "nome": "J2",
+      "tipo": "cold",
+      "T_in": 20.0,
+      "T_out": 75.0,
+      "heat_load_kW": 1283.3333333333333,
+      "h_W_m2K": 111.11111111111111,
+      "disponibile": true
+    },
+    {
+      "codice": "C3",
+      "nome": "J3",
+      "tipo": "cold",
+      "T_in": 20.0,
+      "T_out": 40.0,
+      "heat_load_kW": 466.6666666666667,
+      "h_W_m2K": 111.11111111111111,
+      "disponibile": true
+    },
+    {
+      "codice": "C4",
+      "nome": "J4",
+      "tipo": "cold",
+      "T_in": 40.0,
+      "T_out": 67.1875,
+      "heat_load_kW": 483.3333333333333,
+      "h_W_m2K": 111.11111111111111,
+      "disponibile": true
+    }
+  ]
+}
