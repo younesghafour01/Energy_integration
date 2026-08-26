@@ -43,7 +43,7 @@ implementa la struttura del problema di ottimizzazione ispirato a Thibault et al
 Il modulo [`src/hens/BAR05_hens.py`](src/hens/BAR05_hens.py) implementa un
 MILP per la Heat Exchanger Network Synthesis basato su Barbaro e Bagajewicz
 (2005) e sul relativo corrigendum (2006). Il preprocessing termico identico a
-THI15 è riusato dal modulo neutro `src/common/thermal_preprocessing.py`.
+THI15 è riusato dal modulo comune `src/common/thermal_preprocessing.py`.
 
 La formulazione corrente comprende:
 
@@ -66,49 +66,11 @@ Sono disponibili i casi BAR05 **4S1**, **7SP4**, **10SP1**, **EX1** ed **EX2**.
 
 ### HENS – TRA15
 
-Il modulo [`src/hens/TRA15_hens.py`](src/hens/TRA15_hens.py) importa e riusa il modello base BAR05. Le dipendenze sono unidirezionali: preprocessing comune → BAR05 → TRA15; BAR05 non importa TRA15.
+Il modulo [`src/hens/TRA15_hens.py`](src/hens/TRA15_hens.py) importa e riusa il modello base BAR05. 
 
 TRA15 aggiunge tecnologie multiple con `FHEX_t` e match `P_t`, flexible streams, utility virtuali e tecnologia virtuale. Il non-isothermal mixing resta nel modulo BAR05, perché corrisponde alle Eq. BAR05 (7)–(10), ed è importato senza duplicazioni.
 
 Sono disponibili e verificati TRA15 Test 1–4. Test 2 esercita le tecnologie multiple; Test 3–4 verificano anche flexible streams e utility virtuali.
-La separazione dei moduli e verificabile dagli import: il common non conosce modelli, BAR05 non importa TRA15 e TRA15 riusa il builder BAR05 attraverso punti di estensione.
-In questo modo le primitive termiche condivise restano neutrali, le equazioni BAR05 e il corrigendum hanno un solo proprietario, mentre tecnologie multiple, FHEX, P_t, correnti flessibili e utility virtuali rimangono confinate nel modulo TRA15. Questa regola guida le estensioni e riduce il rischio di dipendenze circolari.
-
-## Struttura della repository
-
-```text
-.
-├── esegui.py
-├── src/
-│   ├── common/thermal_preprocessing.py
-│   ├── predesign/THI15_predesign.py
-│   └── hens/
-│       ├── BAR05_hens.py
-│       └── TRA15_hens.py
-├── dati_input/
-│   ├── predesign/
-│   │   ├── 4_flussi.json
-│   │   └── dairy.json
-│   └── hens/
-│       ├── BAR05_hens/
-│       │   ├── 4S1.json, 7SP4.json, 10SP1.json
-│       │   └── EX1.json, EX2.json
-│       └── TRA15_hens/
-│           └── test1.json … test4.json
-├── risultati/
-│   ├── predesign/{4_flussi,dairy}/
-│   └── hens/
-│       ├── BAR05_hens/{4S1,7SP4,10SP1,EX1,EX2}/
-│       └── TRA15_hens/{test1,test2,test3,test4}/
-├── docs/
-├── archivio/
-├── .gitignore
-└── README.md
-```
-
-`archivio/` contiene versioni precedenti, casi non più collegati all'entry
-point e script diagnostici storici. Non fa parte della pipeline corrente. Non
-è presente una suite di test automatica attiva fuori da questa cartella.
 
 
 ## Requisiti
@@ -194,32 +156,14 @@ python esegui.py dati_input/hens/TRA15_hens/test1.json hens tra15
 
 ## Stato della validazione
 
-I report numerici sono nella cartella `risultati/`. Dopo il refactoring sono
-stati verificati BAR05 4S1 e TRA15 Test 1–2 mantenendo TAC, topologia e
-dimensioni MILP; Test 3–4 verificano inoltre le estensioni flessibili.
-
-La documentazione del refactoring conservativo è disponibile in:
-
-- [`docs/model_architecture.md`](docs/model_architecture.md): mappa comparata
-  delle undici fasi dei tre modelli;
-- [`docs/model_traceability.md`](docs/model_traceability.md): relazione
-  bidirezionale tra fonti, equazioni, funzioni e oggetti Python;
-- [`docs/refactoring_validation.md`](docs/refactoring_validation.md): baseline
-  e confronto numerico prima/dopo;
-- [`docs/refactoring_findings.md`](docs/refactoring_findings.md): incoerenze,
-  duplicazioni, riferimenti incerti e possibili bug non corretti.
-
-
-
-
-
+I report numerici sono nella cartella `risultati/`.
+Sono stati validati BAR05 4S1 e TRA15 Test 1–2 ;
+Gli altri test non sono ancora stati validati.
 
 ## Stato di sviluppo / sviluppi futuri
 
-Le attività ancora in corso sono:
+Le attività di sviluppo sono ancora in corso 
 
-- completare il confronto quantitativo con tutte le tabelle delle fonti;
-- ampliare i controlli automatici di regressione e tracciabilità;
 
 ## Riferimenti bibliografici
 
