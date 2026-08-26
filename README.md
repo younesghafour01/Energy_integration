@@ -108,9 +108,7 @@ Il caso attualmente verificato è TRA15 Test 1, nel quale è disponibile soltant
 └── README.md
 ```
 
-`archivio/` contiene versioni precedenti, casi non più collegati all'entry
-point e script diagnostici storici. Non fa parte della pipeline corrente. Non
-è presente una suite di test automatica attiva fuori da questa cartella.
+`archivio/` contiene versioni preceedenti di alcuni file
 
 
 ## Requisiti
