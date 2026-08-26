@@ -1,3 +1,6 @@
 .venv/
 _pycahche__/
-*.pyc
+*.pycarchivio/
+archivio/
+__pycache__/
+risultati/diagnosi_*/

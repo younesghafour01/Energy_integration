@@ -1,0 +1,61 @@
+
+======================================
+ THI15 - UTILITIES PREDESIGN
+======================================
+
+
+PUNTI GCC CON UTILITY ATTIVE
+z | k | T [°C] | Q_GCC [kW] | NHL [kW] | Papp [kW] | Pprel [kW]
+1 | 20 | 60.625 | 60.937500 | 0.937500 | 0.000000 | 42.763775
+1 | 29 | 77.500 | 18.750000 | 1.513775 | 0.000000 | 17.236225
+2 | 9 | 98.750 | 20.625000 | 0.625000 | 20.000000 | 0.000000
+
+PINCH
+QH_min: 20.000 kW
+QC_min: 60.000 kW
+Pinch traslati: [85.0] °C
+MPP: 1, PPP: 0, pockets: 2
+
+DISCRETIZZAZIONE
+Z: 2
+z=1: S_z=33, Tmin=25.000 °C, Tmax=85.000 °C, punti=33, segmenti=32
+z=2: S_z=53, Tmin=85.000 °C, Tmax=165.000 °C, punti=53, segmenti=52
+Punti totali: 86; segmenti totali: 84
+
+CANDIDATI
+HPPr=692, HPUt=0, Ref=0, ORC=32, CHP=0
+
+SOLVER
+Status CPLEX: integer optimal solution
+Objective: -0.016472
+Variabili: 1796; binarie: 724; vincoli: 1074
+
+UTILITY SELEZIONATE
+HPPr (1, 29, 2, 9): F=0.919265, Tevap=72.50 °C, Tcond=103.75 °C, COP=7.236, Qevap=17.236 kW, Qcond=20.000 kW, W=2.764 kW
+ORC (1, 20): F=0.701765, Thot=55.62 °C, Eff=0.065, carico_termico=42.764 kW, Wprod=2.780 kW
+
+PRESELECTION RESULT - HPPr (1, 29, 2, 9)
++---------------------------------+---------+
+| Parameter                       |   Value |
++---------------------------------+---------+
+| Heat pump heating capacity (kW) |  20.000 |
+| Heat pump cooling capacity (kW) |  17.236 |
+| Heat pump electrical power (kW) |   2.764 |
+| Evaporation temperature (°C)    |  72.500 |
+| Condensation temperature (°C)   | 103.750 |
+| Remaining cooling load (kW)     |  42.764 |
++---------------------------------+---------+
+
+GLOBALI
+TEC: 2.764 kW
+TEP: 2.780 kW
+PprelCHP: 0.000 kW
+Hot MER residuo: 0.000 kW
+Cold MER residuo: 0.000 kW
+FinalExergy: -0.016 kW
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\4_flussi\composite_curves_reali.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\4_flussi\composite_curves_traslate.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\4_flussi\grand_composite_curve.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\4_flussi\self_sufficient_pockets.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\4_flussi\grand_composite_curve_aggiornata.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\4_flussi\integrated_composite_curve.png
