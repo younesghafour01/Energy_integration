@@ -10,16 +10,15 @@ from src.predesign.THI15_predesign import (
     salva_grafici,
 )
 from src.hens.BAR05_hens import (
-    prepara_HENS_BAR05,
-    risolvi_HEN,
-    stampa_risultati_HEN,
-    salva_validazione_BAR05,
+    prepara_modello as prepara_bar05,
+    risolvi_modello as risolvi_bar05,
+    stampa_risultati as stampa_risultati_bar05,
+    salva_validazione,
 )
 from src.hens.TRA15_hens import (
-    prepara_HENS_TRA15,
-    risolvi_HEN_TRA15,
-    stampa_risultati_TRA15,
-    salva_validazione_TRA15_test1,
+    prepara_modello as prepara_tra15,
+    risolvi_modello as risolvi_tra15,
+    stampa_risultati as stampa_risultati_tra15,
 )
 
 BASE = Path(__file__).resolve().parent
@@ -185,16 +184,16 @@ def main():
                 print(" HENS - BAR05")
                 print("======================================\n")
 
-                preparazione = prepara_HENS_BAR05(
+                preparazione = prepara_bar05(
                     percorso_input
                 )
 
-                risultati = risolvi_HEN(
+                risultati = risolvi_bar05(
                     preparazione,
                     log_output=False,
                 )
 
-                stampa_risultati_HEN(
+                stampa_risultati_bar05(
                     risultati
                 )
                 percorso_validazione = (
@@ -202,7 +201,7 @@ def main():
                     / "validazione_BAR05.txt"
                 )
 
-                salva_validazione_BAR05(
+                salva_validazione(
                     preparazione,
                     risultati,
                     percorso_validazione,
@@ -259,7 +258,7 @@ def main():
                 print(" HENS - TRA15")
                 print("======================================\n")
 
-                preparazione = prepara_HENS_TRA15(
+                preparazione = prepara_tra15(
                                 percorso_input,
                                 delta_T_partition_max=11.0,
                                 numero_intervalli_min=1,
@@ -267,7 +266,7 @@ def main():
                                 non_isothermal_mixing=True,
                             )
 
-                risultati = risolvi_HEN_TRA15(
+                risultati = risolvi_tra15(
                     preparazione,
                     log_output=False,
                     time_limit_s=10800,
@@ -275,15 +274,15 @@ def main():
                     threads=1,
                 )
 
-                stampa_risultati_TRA15(
+                stampa_risultati_tra15(
                     risultati
                 )
                 percorso_validazione = (
                     cartella_output
-                    / "validazione_TRA15_test1.txt"
+                    / "validazione_TRA15.txt"
                 )
 
-                salva_validazione_TRA15_test1(
+                salva_validazione(
                     preparazione,
                     risultati,
                     percorso_validazione,

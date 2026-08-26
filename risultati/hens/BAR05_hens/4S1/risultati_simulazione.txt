@@ -52,7 +52,7 @@ Zone: 2
 Intervalli: 26
 Variabili: 1142
 Vincoli: 2437
-Tempo solve: 0.297 s
+Tempo solve: 0.234 s
 
 ============================================================
 ECONOMIA

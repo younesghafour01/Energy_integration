@@ -1,0 +1,77 @@
+{
+  "nome": "BAR05 - Problem 10SP1",
+  "fonte": "Barbaro & Bagajewicz (2005), Section 3.3, Tables 9-12 and Figure 16",
+  "delta_T_min": 10.0,
+  "delta_T_max": 4.0,
+  "delta_T_partition_max": 11.0,
+  "numero_intervalli_min": 1,
+  "hens": {
+    "framework": "bar05",
+    "separa_al_pinch": false,
+    "bar05_qL": 1e-06,
+    "benchmark_area_total_m2": 2070.4,
+    "benchmark_exchanger_count": 10,
+    "benchmark_exchangers": [
+      {"hot": "H1", "cold": "C3", "carico_termico_kW": 163.58333333333334, "area_m2": 109.9},
+      {"hot": "H2", "cold": "C2", "carico_termico_kW": 179.02777777777777, "area_m2": 264.0},
+      {"hot": "H2", "cold": "C5", "carico_termico_kW": 145.97222222222223, "area_m2": 118.1},
+      {"hot": "H3", "cold": "C4", "carico_termico_kW": 456.0, "area_m2": 396.4},
+      {"hot": "H3", "cold": "CU", "carico_termico_kW": 204.55555555555554, "area_m2": 238.8},
+      {"hot": "H4", "cold": "C3", "carico_termico_kW": 139.16666666666666, "area_m2": 84.6},
+      {"hot": "H4", "cold": "C5", "carico_termico_kW": 286.47222222222223, "area_m2": 263.3},
+      {"hot": "H5", "cold": "C1", "carico_termico_kW": 211.66666666666666, "area_m2": 146.8},
+      {"hot": "H5", "cold": "C3", "carico_termico_kW": 126.27777777777777, "area_m2": 142.2},
+      {"hot": "H5", "cold": "CU", "carico_termico_kW": 317.0833333333333, "area_m2": 306.4}
+    ],
+    "flexible_streams": [],
+    "utilities": [
+      {
+        "codice": "CU",
+        "nome": "BAR05 cooling utility J6",
+        "tipo": "cold",
+        "T_in": 38.0,
+        "T_out": 82.0,
+        "h_W_m2K": 55.55555555555556,
+        "F_U_kW_K": 11.855,
+        "costo_USD_per_kW_year": 0.0,
+        "carico_termico_variabile": true,
+        "disponibile": true
+      }
+    ],
+    "technologies": [
+      {
+        "codice": "BAR05_BASE",
+        "nome": "BAR05 linearized exchanger cost",
+        "enabled": true,
+        "A_max_m2": 10000.0,
+        "costo_fisso_USD_per_year": 5291.9,
+        "costo_area_USD_per_m2_year": 77.79,
+        "matches": [
+          ["H1", "C1"], ["H1", "C2"], ["H1", "C3"], ["H1", "C4"], ["H1", "C5"], ["H1", "CU"],
+          ["H2", "C1"], ["H2", "C2"], ["H2", "C3"], ["H2", "C4"], ["H2", "C5"], ["H2", "CU"],
+          ["H3", "C1"], ["H3", "C2"], ["H3", "C3"], ["H3", "C4"], ["H3", "C5"], ["H3", "CU"],
+          ["H4", "C1"], ["H4", "C2"], ["H4", "C3"], ["H4", "C4"], ["H4", "C5"], ["H4", "CU"],
+          ["H5", "C1"], ["H5", "C2"], ["H5", "C3"], ["H5", "C4"], ["H5", "C5"], ["H5", "CU"]
+        ]
+      }
+    ],
+    "implementation_parameters": {
+      "utility_costs": "SOURCE_NOT_SPECIFIED / IMPLEMENTATION_PARAMETER: BAR05 Tables 9-12 report no utility operating costs; zero keeps the published exchanger-only objective.",
+      "A_max_m2": "SOURCE_NOT_SPECIFIED / IMPLEMENTATION_PARAMETER: BAR05 Eq. (103)-(104) requires A_ij,max but the case-study tables do not give it; 10000 m2 is a conservative non-binding representation bound.",
+      "bar05_qL": "SOURCE_NOT_SPECIFIED / IMPLEMENTATION_PARAMETER: BAR05 Eq. (11)-(14) requires a positive qL; 1e-6 kW is the repository convention.",
+      "partition": "SOURCE_NOT_SPECIFIED / IMPLEMENTATION_PARAMETER: finite partition controls required by the implementation."
+    }
+  },
+  "flussi": [
+    {"codice": "H1", "nome": "I1", "tipo": "hot", "T_in": 160.0, "T_out": 93.0, "heat_load_kW": 163.59166666666667, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "H2", "nome": "I2", "tipo": "hot", "T_in": 249.0, "T_out": 138.0, "heat_load_kW": 324.98333333333335, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "H3", "nome": "I3", "tipo": "hot", "T_in": 227.0, "T_out": 66.0, "heat_load_kW": 660.5472222222222, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "H4", "nome": "I4", "tipo": "hot", "T_in": 271.0, "T_out": 149.0, "heat_load_kW": 425.64444444444445, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "H5", "nome": "I5", "tipo": "hot", "T_in": 199.0, "T_out": 66.0, "heat_load_kW": 655.025, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "C1", "nome": "J1", "tipo": "cold", "T_in": 60.0, "T_out": 160.0, "heat_load_kW": 211.66666666666666, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "C2", "nome": "J2", "tipo": "cold", "T_in": 116.0, "T_out": 222.0, "heat_load_kW": 179.0222222222222, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "C3", "nome": "J3", "tipo": "cold", "T_in": 38.0, "T_out": 221.0, "heat_load_kW": 429.03333333333336, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "C4", "nome": "J4", "tipo": "cold", "T_in": 82.0, "T_out": 177.0, "heat_load_kW": 456.0, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true},
+    {"codice": "C5", "nome": "J5", "tipo": "cold", "T_in": 93.0, "T_out": 205.0, "heat_load_kW": 432.44444444444446, "h_W_m2K": 55.55555555555556, "splittable": true, "disponibile": true}
+  ]
+}
