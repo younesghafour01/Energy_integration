@@ -160,11 +160,6 @@ I risultati attualmente riportati nella repository sono stati ottenuti utilizzan
 - IBM CPLEX 22.2.0.0
 - Matplotlib 3.11.1
 
-DOcplex viene utilizzato per costruire i problemi matematici di ottimizzazione descritti nei modelli implementati nella repository.
-IBM CPLEX è invece il programma che risolve questi problemi e individua la soluzione ottima o la migliore soluzione disponibile.
-In particolare, CPLEX viene utilizzato nei modelli di predesign delle utilities e di sintesi delle reti di scambiatori, dove devono essere valutate molte possibili configurazioni.
-Matplotlib viene utilizzato per la produzione dei grafici associati alla Pinch Analysis e al predesign delle utilities.
-
 ## Utilizzo
 
 La sintassi implementata dal terminale è:
