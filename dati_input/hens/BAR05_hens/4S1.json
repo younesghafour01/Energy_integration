@@ -1,14 +1,60 @@
 {
   "nome": "BAR05 - Problem 4S1",
-  "fonte": "BAR05, Tables 1-4 and Figure 14",
+  "fonte": "Barbaro & Bagajewicz (2005), Problem 4S1, Tables 1-4 and Figure 14",
   "delta_T_min": 20.0,
   "delta_T_max": 4.0,
   "delta_T_partition_max": 11.0,
   "numero_intervalli_min": 1,
   "hens": {
+    "framework": "bar05",
     "separa_al_pinch": true,
     "bar05_qL": 1e-06,
     "flexible_streams": [],
+    "benchmark_area_total_m2": 1358.7,
+    "benchmark_exchangers": [
+      {
+        "hot": "H1",
+        "cold": "C1",
+        "carico_termico_kW": 109.72222222222223,
+        "area_m2": 99.8
+      },
+      {
+        "hot": "H1",
+        "cold": "C2",
+        "carico_termico_kW": 29.166666666666668,
+        "area_m2": 48.4
+      },
+      {
+        "hot": "HU",
+        "cold": "C1",
+        "carico_termico_kW": 168.05555555555554,
+        "area_m2": 160.2
+      },
+      {
+        "hot": "H1",
+        "cold": "C2",
+        "carico_termico_kW": 76.38888888888889,
+        "area_m2": 77.4
+      },
+      {
+        "hot": "H1",
+        "cold": "CU",
+        "carico_termico_kW": 145.83333333333334,
+        "area_m2": 109.0
+      },
+      {
+        "hot": "H2",
+        "cold": "C1",
+        "carico_termico_kW": 472.22222222222223,
+        "area_m2": 551.4
+      },
+      {
+        "hot": "H2",
+        "cold": "C2",
+        "carico_termico_kW": 194.44444444444446,
+        "area_m2": 312.4
+      }
+    ],
     "utilities": [
       {
         "codice": "HU",
@@ -19,7 +65,7 @@
         "h_W_m2K": 55.55555555555556,
         "F_U_kW_K": 168.05555555555554,
         "costo_USD_per_kW_year": 173.0,
-        "duty_variabile": true,
+        "carico_termico_variabile": true,
         "disponibile": true
       },
       {
@@ -31,7 +77,7 @@
         "h_W_m2K": 55.55555555555556,
         "F_U_kW_K": 14.583333333333334,
         "costo_USD_per_kW_year": 86.0,
-        "duty_variabile": true,
+        "carico_termico_variabile": true,
         "disponibile": true
       }
     ],
@@ -79,8 +125,7 @@
           ]
         ]
       }
-    ],
-    "framework": "bar05"
+    ]
   },
   "flussi": [
     {

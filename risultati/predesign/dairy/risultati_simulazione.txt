@@ -1,0 +1,91 @@
+
+======================================
+ THI15 - UTILITIES PREDESIGN
+======================================
+
+
+PUNTI GCC CON UTILITY ATTIVE
+z | k | T [°C] | Q_GCC [kW] | NHL [kW] | Papp [kW] | Pprel [kW]
+1 | 1 | 2.000 | 818.768039 | 0.000000 | 0.000000 | 232.743083
+1 | 2 | 3.000 | 740.540847 | 154.515891 | 0.000000 | 304.165682
+2 | 9 | 27.000 | 533.640739 | 251.781466 | 277.063454 | 0.000000
+2 | 24 | 58.900 | 849.800000 | 290.877272 | 0.000000 | 558.922728
+5 | 5 | 71.500 | 1193.942973 | 119.619531 | 1074.323442 | 0.000000
+
+PINCH
+QH_min: 1615.068 kW
+QC_min: 818.768 kW
+Pinch traslati: [58.9] °C
+MPP: 1, PPP: 3, pockets: 3
+
+DISCRETIZZAZIONE
+Z: 5
+z=1: S_z=5, Tmin=2.000 °C, Tmax=6.000 °C, punti=5, segmenti=4
+z=2: S_z=25, Tmin=6.000 °C, Tmax=58.900 °C, punti=25, segmenti=24
+z=3: S_z=8, Tmin=58.900 °C, Tmax=64.700 °C, punti=8, segmenti=7
+z=4: S_z=6, Tmin=64.700 °C, Tmax=67.700 °C, punti=6, segmenti=5
+z=5: S_z=17, Tmin=67.700 °C, Tmax=100.000 °C, punti=17, segmenti=16
+Punti totali: 61; segmenti totali: 56
+
+CANDIDATI
+HPPr=1334, HPUt=0, Ref=0, ORC=0, CHP=0
+
+SOLVER
+Status CPLEX: integer optimal, tolerance
+Objective: 651.105428
+Variabili: 2916; binarie: 1334; vincoli: 1583
+
+UTILITY SELEZIONATE
+HPPr (1, 1, 2, 9): F=0.284260, Tevap=0.00 °C, Tcond=29.00 °C, COP=6.251, Qevap=232.743 kW, Qcond=277.063 kW, W=44.320 kW
+HPPr (1, 2, 5, 5): F=0.410735, Tevap=1.00 °C, Tcond=73.50 °C, COP=2.869, Qevap=304.166 kW, Qcond=466.923 kW, W=162.757 kW
+HPPr (2, 24, 5, 5): F=0.657711, Tevap=56.90 °C, Tcond=73.50 °C, COP=12.530, Qevap=558.923 kW, Qcond=607.400 kW, W=48.478 kW
+
+PRESELECTION RESULT - HPPr (1, 1, 2, 9)
++---------------------------------+---------+
+| Parameter                       |   Value |
++---------------------------------+---------+
+| Heat pump heating capacity (kW) | 277.063 |
+| Heat pump cooling capacity (kW) | 232.743 |
+| Heat pump electrical power (kW) |  44.320 |
+| Evaporation temperature (°C)    |   0.000 |
+| Condensation temperature (°C)   |  29.000 |
+| Remaining cooling load (kW)     |   0.000 |
++---------------------------------+---------+
+
+PRESELECTION RESULT - HPPr (1, 2, 5, 5)
++---------------------------------+---------+
+| Parameter                       |   Value |
++---------------------------------+---------+
+| Heat pump heating capacity (kW) | 466.923 |
+| Heat pump cooling capacity (kW) | 304.166 |
+| Heat pump electrical power (kW) | 162.757 |
+| Evaporation temperature (°C)    |   1.000 |
+| Condensation temperature (°C)   |  73.500 |
+| Remaining cooling load (kW)     |   0.000 |
++---------------------------------+---------+
+
+PRESELECTION RESULT - HPPr (2, 24, 5, 5)
++---------------------------------+---------+
+| Parameter                       |   Value |
++---------------------------------+---------+
+| Heat pump heating capacity (kW) | 607.400 |
+| Heat pump cooling capacity (kW) | 558.923 |
+| Heat pump electrical power (kW) |  48.478 |
+| Evaporation temperature (°C)    |  56.900 |
+| Condensation temperature (°C)   |  73.500 |
+| Remaining cooling load (kW)     |   0.000 |
++---------------------------------+---------+
+
+GLOBALI
+TEC: 255.555 kW
+TEP: 0.000 kW
+PprelCHP: 0.000 kW
+Hot MER residuo: 540.745 kW
+Cold MER residuo: 0.000 kW
+FinalExergy: 651.105 kW
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\dairy\composite_curves_reali.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\dairy\composite_curves_traslate.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\dairy\grand_composite_curve.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\dairy\self_sufficient_pockets.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\dairy\grand_composite_curve_aggiornata.png
+Grafico salvato in: C:\Users\youne\Desktop\UNIFI\Magistrale\secondo anno\Modelli per l'analisi energetica\Termodinamica avanzata\progetto\energy-integration-from-scratch\risultati\predesign\dairy\integrated_composite_curve.png
