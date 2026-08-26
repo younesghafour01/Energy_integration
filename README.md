@@ -106,9 +106,7 @@ In questo modo le primitive termiche condivise restano neutrali, le equazioni BA
 └── README.md
 ```
 
-`archivio/` contiene versioni precedenti, casi non più collegati all'entry
-point e script diagnostici storici. Non fa parte della pipeline corrente. Non
-è presente una suite di test automatica attiva fuori da questa cartella.
+`archivio/` contiene versioni precedenti.
 
 
 ## Requisiti
@@ -122,7 +120,7 @@ In particolare sono necessari:
 - **IBM CPLEX**, che risolve effettivamente i problemi di ottimizzazione;
 - **Matplotlib**, utilizzato per creare i grafici della Pinch Analysis e del predesign delle utilities.
 
-### Perché servono DOcplex e CPLEX?
+### A cosa servono DOcplex e CPLEX?
 
 Una parte importante di questa repository consiste nel trovare automaticamente la soluzione migliore tra molte configurazioni possibili.
 
