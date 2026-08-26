@@ -1,378 +1,60 @@
-# 1. STRUTTURE DATI
-import json
+"""Predesign delle utility.
+
+Architettura del modulo
+------------------------------------
+1_INPUT: strutture e caricamento importati dall'infrastruttura comune.
+2_NORMALIZZAZIONE: conversione Pinch importata dall'infrastruttura comune.
+3_INSIEMI_E_INDICI: cascata/GCC condivise; MPP/PPP e pockets specifici.
+4_PINCH_ANALYSIS
+5_DISCRETIZZAZIONE: :func:`discretizza_GCC`.
+6_VARIABILI, 7_VINCOLI, 8_FUNZIONE_OBIETTIVO: MODELLO MATEMATICO
+9_SOLVE: :func:`risolvi_modello_utilities`.
+10_POST_PROCESSING: ricostruzione delle utility e delle curve T-Q.
+11_STAMPA RISULTATI E GRAFICI: Stampa dei risultati e salvataggio grafici costruiti.
+
+
+"""
+
+# ============================================================================
+# SHARED INFRASTRUCTURE - INPUT, CONVERSIONE PINCH, CASCATA E GCC
+# ============================================================================
 from docplex.mp.model import Model
 from pathlib import Path
 
-class Flusso:
-    """Corrente sensibile o carico termico isotermo."""
+from src.common.thermal_preprocessing import (
+    Flusso,
+    carica_caso_studio,
+    converti_temperatura_pinch as converti_temperatura,
+    crea_cascata_termica,
+    costruisci_GCC,
+)
 
-    def __init__(
-        self,
-        codice,
-        nome,
-        tipo,
-        T_in,
-        T_out,
-        CP=None,
-        processo=None,
-        zona=None,
-        disponibile=True,
-        heat_load_kW=None,
-        delta_T_min_half=None,
-        isotermo=None,
-        remark=None,
-        unit=None,
-        h_W_m2K=None,
-        splittable=True,
-    ):
-        if tipo not in ("hot", "cold"):
-            raise ValueError(f"Tipo non valido per il flusso {codice}: {tipo}")
-
-        self.codice = codice
-        self.nome = nome
-        self.tipo = tipo
-
-        # Temperature sempre memorizzate sulla scala reale.
-        self.T_in = float(T_in)
-        self.T_out = float(T_out)
-
-        self.heat_load_kW = (
-            None if heat_load_kW is None else float(heat_load_kW)
-        )
-
-        # Valore specifico del flusso per la traslazione Pinch.
-        # Se None, verrà usato delta_T_min / 2.
-        self.delta_T_min_half = (
-            None if delta_T_min_half is None else float(delta_T_min_half)
-        )
-
-        self.h_W_m2K = (
-            None if h_W_m2K is None else float(h_W_m2K)
-        )
-
-        if self.h_W_m2K is not None and self.h_W_m2K <= 0:
-            raise ValueError(
-                f"h_W_m2K non valido per {codice}: {self.h_W_m2K}"
-            )
-
-        # Se non specificato nel JSON, identifica automaticamente
-        # una corrente isoterma da T_in == T_out.
-        self.isotermo = (
-            abs(self.T_in - self.T_out) <= 1e-12
-            if isotermo is None
-            else bool(isotermo)
-        )
-
-        self.processo = processo
-        self.zona = zona
-        self.disponibile = bool(disponibile)
-        self.remark = remark
-        self.unit = unit
-        # BAR05, sets SH/SC: by default process streams remain splittable to
-        # preserve the behaviour of JSON files created before this field.
-        self.splittable = bool(splittable)
-
-        # Determinazione del CP.
-        if self.isotermo:
-
-            if self.heat_load_kW is None:
-                raise ValueError(
-                    f"Il flusso isotermo {codice} richiede heat_load_kW."
-                )
-
-            self.CP = None if CP is None else float(CP)
-
-        elif CP is not None:
-
-            self.CP = float(CP)
-
-        elif self.heat_load_kW is not None:
-
-            self.CP = (
-                self.heat_load_kW
-                / abs(self.T_out - self.T_in)
-            )
-
-        else:
-
-            raise ValueError(
-                f"Il flusso {codice} richiede CP oppure heat_load_kW."
-            )
-
-    def calcola_Q(self):
-        """Restituisce il carico termico totale della corrente in kW."""
-
-        if self.heat_load_kW is not None:
-            return self.heat_load_kW
-
-        return self.CP * abs(self.T_in - self.T_out)
-
-# 2. INPUT funzioni che gestiscono l'input = "configuazione"
-
-def carica_caso_studio(percorso_json):
-    """Carica il caso studio e converte i flussi in oggetti Flusso."""
-
-    # Legge il file JSON e converte il suo contenuto
-    # nel dizionario Python "configurazione".
-    with Path(percorso_json).open(
-        mode="r",
-        encoding="utf-8",
-    ) as file:
-        configurazione = json.load(file)
-
-    # Sostituisce la lista di dizionari "flussi" letta dal JSON
-    # con una lista di oggetti della classe Flusso.
-    configurazione["flussi"] = [
-        Flusso(**dati_flusso)
-        for dati_flusso in configurazione["flussi"]
-    ]
-
-    # Restituisce l'intera configurazione del caso studio,
-    # con "flussi" ormai contenente oggetti Flusso.
-    return configurazione
-
-# 3. CONVERSIONI DI TEMPERATURA
-
-def converti_temperatura(
-    T,
-    tipo,
-    delta_T_min,
-    origine,
-    destinazione,
-    delta_T_min_half=None,
-    ):
-    """Converte una temperatura tra le scale reale, Pinch e HENS."""
-
-    # Usa il valore specifico della corrente, se definito; #caso deiry_case definisce i delta_T_min per ogni corrente
-    # altrimenti assume la traslazione standard ΔTmin/2.
-    delta_half = (
-        delta_T_min / 2
-        if delta_T_min_half is None
-        else delta_T_min_half
-    )
-
-    # Prima riporta sempre la temperatura alla scala reale.
-    if origine == "reale":
-        T_reale = T
-
-    elif origine == "pinch":
-        # Scala Pinch:
-        # hot  = reale - delta_half
-        # cold = reale + delta_half
-        if tipo == "hot":
-            T_reale = T + delta_half
-        else:
-            T_reale = T - delta_half
-
-    elif origine == "hens":
-        # Scala HENS:
-        # hot  = reale
-        # cold = reale + ΔTmin
-        if tipo == "hot":
-            T_reale = T
-        else:
-            T_reale = T - delta_T_min
-
-    else:
-        raise ValueError(f"Scala non riconosciuta: {origine}")
-
-    # Dalla temperatura reale passa alla scala richiesta.
-    if destinazione == "reale":
-        return T_reale
-
-    if destinazione == "pinch":
-        return (
-            T_reale - delta_half
-            if tipo == "hot"
-            else T_reale + delta_half
-        )
-
-    if destinazione == "hens":
-        return (
-            T_reale
-            if tipo == "hot"
-            else T_reale + delta_T_min
-        )
-
-    raise ValueError(f"Scala non riconosciuta: {destinazione}")
-
-# 4. PINCH ANALYSIS STRUMENTI
-
-def crea_cascata_termica(flussi, delta_T_min, tolleranza=1e-9):
-    """Crea la cascata termica includendo i carichi termici isotermi."""
-    # Tiene solo i flussi dichiarati disponibili nel caso studio.
-    flussi_attivi = [flusso for flusso in flussi if flusso.disponibile]
-
-    flussi_traslati = []
-    temperature = []
-    carichi_isotermi = {}
-
-    for flusso in flussi_attivi:
-        # Converte le temperature reali del flusso nella scala Pinch T*.
-        T_in_star = converti_temperatura(
-            flusso.T_in,
-            flusso.tipo,
-            delta_T_min,
-            "reale",
-            "pinch",
-            flusso.delta_T_min_half,
-        )
-        T_out_star = converti_temperatura(
-            flusso.T_out,
-            flusso.tipo,
-            delta_T_min,
-            "reale",
-            "pinch",
-            flusso.delta_T_min_half,
-        )
-
-        # Salva insieme il flusso originale e i suoi estremi traslati.
-        flussi_traslati.append((flusso, T_in_star, T_out_star))
-
-        # Raccoglie tutti gli estremi di temperatura, che diventeranno i limiti degli intervalli della Problem Table.
-        temperature.extend([T_in_star, T_out_star,])
-
-        # I flussi isotermi hanno T_in = T_out e quindi non possono essere trattati con Q = CP * ΔT.
-        # Il loro carico viene quindi registrato direttamente alla temperatura T*.
-        if flusso.isotermo:
-            # Se è la prima corrente isoterma a questa temperatura,
-            # inizializza il relativo contenitore.
-            if T_in_star not in carichi_isotermi:
-                carichi_isotermi[T_in_star] = {"hot": 0.0,"cold": 0.0,}
-            # Somma il carico_termico alla componente hot oppure cold.
-            carichi_isotermi[T_in_star][flusso.tipo] += flusso.calcola_Q()
-    # Crea i livelli termici della Problem Table:
-    # elimina i duplicati e li ordina dalla temperatura più alta alla più bassa.
-    livelli = sorted(set(temperature),reverse=True,)
-
-    # "risultati" conterrà una riga per ogni intervallo o carico isotermo.
-    risultati = []
-    # Prima cascata costruita assumendo inizialmente QH = 0.
-    cascata_provvisoria = 0.0
-    # Scorre tutti i livelli termici dall'alto verso il basso.
-    for indice, T_sup in enumerate(livelli):
-        # Se a questo livello esiste un carico isotermo,
-        # lo inserisce direttamente nella cascata.
-        if T_sup in carichi_isotermi:
-            Q_hot = carichi_isotermi[T_sup]["hot"]
-            Q_cold = carichi_isotermi[T_sup]["cold"]
-            # Bilancio energetico del carico isotermo:
-            # hot aggiunge energia, cold la sottrae.
-            delta_H = Q_hot - Q_cold
-            # Aggiorna il valore cumulativo della cascata.
-            cascata_provvisoria += delta_H
-            # Registra il carico isotermo come intervallo a ΔT = 0 quindi T_inf = T_sup.
-            risultati.append(
-                {
-                    "T_sup": T_sup,
-                    "T_inf": T_sup,
-                    "CP_hot": 0.0,
-                    "CP_cold": 0.0,
-                    "delta_H_hot": Q_hot,
-                    "delta_H_cold": Q_cold,
-                    "delta_H": delta_H,
-                    "cascata_provvisoria": cascata_provvisoria,
-                }
-            )
-
-        # L'ultimo livello non ha un livello inferiore:
-        # quindi non può formare un ulteriore intervallo.
-        if indice == len(livelli) - 1:
-            break
-
-        # Temperatura inferiore dell'intervallo corrente.
-        T_inf = livelli[indice + 1]
-
-        # Somma dei CP delle hot e cold stream presenti nell'intervallo.
-        CP_hot = 0.0
-        CP_cold = 0.0
-
-        for flusso, T_in_star, T_out_star in flussi_traslati:
-            # Le correnti isotermiche sono già state trattate sopra.
-            if flusso.isotermo:
-                continue
-            # Estremi termici della corrente indipendentemente dal suo verso.
-            T_max = max(T_in_star, T_out_star)
-            T_min = min(T_in_star, T_out_star)
-            # Verifica se la corrente attraversa completamente
-            # l'intervallo [T_inf, T_sup].
-            if T_max >= T_sup and T_min <= T_inf:
-                if flusso.tipo == "hot":
-                    CP_hot += flusso.CP
-                else:
-                    CP_cold += flusso.CP
-        # Ampiezza termica dell'intervallo.
-        delta_T = T_sup - T_inf
-        # Calore ceduto dalle hot e richiesto dalle cold nell'intervallo.
-        Q_hot = CP_hot * delta_T
-        Q_cold = CP_cold * delta_T
-        # Bilancio netto dell'intervallo:
-        # positivo = surplus di calore
-        # negativo = deficit di calore.
-        delta_H = Q_hot - Q_cold
-
-        # Trasferisce il surplus/deficit al livello successivo della cascata.
-        cascata_provvisoria += delta_H
-
-        # Salva tutti i dati dell'intervallo nella Problem Table.
-        risultati.append(
-            {
-                "T_sup": T_sup,
-                "T_inf": T_inf,
-                "CP_hot": CP_hot,
-                "CP_cold": CP_cold,
-                "delta_H_hot": Q_hot,
-                "delta_H_cold": Q_cold,
-                "delta_H": delta_H,
-                "cascata_provvisoria": cascata_provvisoria,
-            }
-        )
-
-    # Raccoglie tutti i valori della cascata provvisoria,
-    # includendo anche il valore iniziale pari a zero.
-    valori_cascata = [0.0, *[riga["cascata_provvisoria"] for riga in risultati],]
-    # Il minimo valore negativo indica quanta hot utility
-    # bisogna aggiungere all'inizio per rendere tutta la cascata >= 0.
-    QH_min = max( 0.0, -min(valori_cascata),)
-    # Costruisce la cascata finale aggiungendo QH_min
-    # a tutti i valori della cascata provvisoria.
-    for riga in risultati:
-        riga["cascata_finale"] = ( riga["cascata_provvisoria"] + QH_min)
-    # Il calore che rimane in fondo alla cascata
-    # è il minimo fabbisogno di cold utility.
-    QC_min = risultati[-1]["cascata_finale"]
- 
-    # Il Main Pinch Point corrisponde al minimo della cascata
-    # Individua il primo punto in cui la cascata raggiung il proprio minimo globale.
-
-    indice_pinch = min(
-        range(len(valori_cascata)),
-        key=valori_cascata.__getitem__,
-    )
-
-    # Se il minimo è il valore iniziale della cascata,
-    # il pinch coincide con il livello termico più alto.
-    if indice_pinch == 0:
-        T_pinch_traslata = livelli[0]
-
-    # Altrimenti corrisponde alla temperatura inferiore
-    # dell'intervallo in cui viene raggiunto il minimo.
-    else:
-        T_pinch_traslata = risultati[
-            indice_pinch - 1
-        ]["T_inf"]
-
-    pinch_traslati = [T_pinch_traslata]
-
-    return (
-        risultati,
-        QH_min,
-        QC_min,
-        pinch_traslati,
-    )
+# Le cinque funzioni importate da ``thermal_preprocessing`` hanno semantica
+# identica anche nella pipeline HENS. Da questo punto iniziano gli algoritmi
+# specifici del predesign: Composite Curves, pockets e discretizzazione GCC.
 
 def costruisci_curve_composite(flussi, risultati, QC_min, tolleranza=1e-9):
-    """Costruisce Hot e Cold Composite Curve sia reali sia traslate."""
+    """Costruisce Hot/Cold Composite Curves reali e traslate.
+
+    Ruolo
+    -----
+    Integra i carichi lungo i livelli termici per il controllo grafico della
+    Pinch Analysis.
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Sec. 2.1.1 e Fig. 2.
+
+    .
+
+    Input / Output
+    --------------
+    Restituisce quattro liste ordinate di tuple ``(Q_kW, T_C)``.
+
+    Note implementative
+    --------------------
+    Le correnti isotermiche producono salti orizzontali espliciti.
+    """
 
     # Costruisce una Composite Curve sulla scala traslata T*
     # usando i risultati già calcolati dalla cascata termica.
@@ -474,25 +156,6 @@ def costruisci_curve_composite(flussi, risultati, QC_min, tolleranza=1e-9):
     cold_CC = costruisci_lato_reale("cold", QC_min)
 
     return hot_CC_traslata, cold_CC_traslata, hot_CC, cold_CC
-    
-def costruisci_GCC(risultati, QH_min):
-    """Costruisce i punti della Grand Composite Curve a partire dalla cascata termica."""
-
-    # Crea il primo punto della GCC:
-    # sull'asse Q parte dal minimo fabbisogno di hot utility QH_min,
-    # mentre la temperatura è il livello termico più alto della cascata.
-    gcc = [(QH_min, risultati[0]["T_sup"])]
-
-    # Aggiunge un punto per ogni riga della cascata finale.
-    # Ogni punto ha coordinate:
-    # (calore residuo della cascata finale, temperatura inferiore dell'intervallo).
-    gcc.extend(
-        (riga["cascata_finale"], riga["T_inf"])
-        for riga in risultati
-    )
-
-    # Restituisce la GCC come lista di punti (Q, T*).
-    return gcc
 
 #le pinch rules sono una cosa da rispettare per non andare ad aumentare il MER e il MER cold definito dalla GCC che abbiamo costruito
 #le pinch rules sono implementate nel modello matematico per la costruzione del MILP
@@ -502,13 +165,26 @@ def self_sufficient_pockets(
     delta_T_min,
     tolleranza=1e-9,
 ):
-    """
-    Individua sulla GCC:
-    - l'unico Main Pinch Point (MPP);
-    - i Potential Pinch Point (PPP);
-    - le self-sufficient pockets.
+    """Individua MPP, PPP e self-sufficient pockets sulla GCC.
 
-    La metodologia assume un solo Main Pinch Point.
+    Ruolo
+    -----
+    Delimita le zone termiche usate dalla discretizzazione del MILP.
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Sec. 2.1.1 e Fig. 1.
+
+    Oggetti matematici
+    ------------------
+    Main Pinch Point, Potential Pinch Points, insieme delle pockets e limiti
+    delle zone ``z = 1, ..., Z``.
+
+    Input / Output
+    --------------
+    Legge punti GCC ``(Q, T*)`` e restituisce record indicizzati per posizione
+    nella GCC, temperatura e carico.
+
     """
 
     # ---------------------------------------------------------
@@ -570,7 +246,7 @@ def self_sufficient_pockets(
     # Per una GCC costruita al MER il minimo deve essere Q = 0.
     if abs(gcc[indice_mpp][0]) > tolleranza:
         raise ValueError(
-            "La GCC non presenta un Main Pinch Point con Q = 0."
+            "La GCC non presenta un Main Pinch Point ."
         )
 
     main_pinch_point = crea_record(
@@ -771,12 +447,23 @@ def self_sufficient_pockets(
             pockets,
     }
 
-##################################################
 
-#ANALSI PINCH
+# ============================================================================
+# 4_ANALSI PINCH
+# ============================================================================
 
 def esegui_analisi_pinch(percorso_json):
-    """Esegue la Pinch Analysis del caso studio."""
+    """Esegue gli stadi di preprocessing che producono la GCC del MILP.
+
+    Input / Output
+    --------------
+    Accetta il percorso JSON e restituisce un dizionario immutato nella forma
+    consumata da :func:`esegui_predesign_utilities`.
+
+    Note implementative
+    --------------------
+    Funzione orchestratrice: non aggiunge equazioni matematiche proprie.
+    """
 
     configurazione = carica_caso_studio(percorso_json)
 
@@ -832,17 +519,40 @@ def esegui_analisi_pinch(percorso_json):
         "pinch_data": pinch_data,
     }
 
-######################################################
 
 
-# 5. UTILITY TARGETING E MILP
-# costruzione del modello matematico: variabili, equazioni, disequazioni, funzione obiettivo 
+# ============================================================================
+# 5_DISCRETIZZAZIONE - ZONE E PUNTI DELLA GCC
+# ============================================================================
 
 def discretizza_GCC(gcc, punti_pinch, delta_T_max, tolleranza=1e-9):
-    """Divide la GCC in zone e discretizza ciascuna zona secondo il modello."""
+    """Divide la GCC in zone e discretizza ogni tratto angolare.
 
-    # MPP e PPP delimitano le zone della GCC. ricercchiamo gli indici che delimitano le zone in cui vogliamo iniziare a discretizzare la curva
-    limiti_zone = sorted({0,len(gcc) - 1,*[punto["indice_gcc"]  for tipo in ("main_pinch_points", "potential_pinch_points")  for punto in punti_pinch[tipo] ],
+    Ruolo
+    -----
+    Costruisce ``Z``, ``S_z`` e i punti ``(Q_z,k, T_z,k)``.
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Sec. 2.1.1: zone delimitate da MPP/PPP, angular
+    points e dimezzamento degli intervalli oltre il passo massimo.
+
+    Oggetti matematici
+    ------------------
+    ``Z``, ``S_z``, ``Q_z,k`` e ``T_z,k``.
+
+    Input / Output
+    --------------
+    Restituisce le zone nel verso grafico e il dizionario ``S_z`` nel verso
+    matematico (zona 1 fredda, zona Z calda).
+
+    """
+
+    # MPP e PPP delimitano le zone della GCC. ricercchiamo gli
+    # indici che delimitano le zone in cui vogliamo iniziare a discretizzare la curva
+    limiti_zone = sorted({0,len(gcc) - 1,*[punto["indice_gcc"]
+                                           for tipo in ("main_pinch_points", "potential_pinch_points")
+                                           for punto in punti_pinch[tipo] ],
         }
     )
 
@@ -906,12 +616,20 @@ def discretizza_GCC(gcc, punti_pinch, delta_T_max, tolleranza=1e-9):
     return zone_GCC, S_z
 
 def riordina_zone_per_milp(zone_GCC):
-    """
-    Riordina le zone secondo la convenzione del modello:
-    z=1 zona più fredda, z=Z zona più calda;
-    k=1 punto più freddo della zona.
+    """Riordina zone e punti secondo gli indici ``(z, k)`` della fonte.
+
+
+    Input / Output
+    --------------
+    Converte l'ordine grafico in ``z=1`` zona più fredda, ``z=Z`` più calda,
+    con ``k=1`` punto più freddo.
     """
     return [list(reversed(zona)) for zona in reversed(zone_GCC)]
+
+
+# ============================================================================
+# 6_VARIABILI, 7_VINCOLI, 8_FUNZIONE_OBIETTIVO - MODELLO MATEMATICO
+# ============================================================================
 
 def genera_candidate_utilities(
     zone_GCC,
@@ -923,16 +641,31 @@ def genera_candidate_utilities(
     T_f,
     T_cond_max=None,
 ):
-    """
-    Genera tutte le utility candidate e precalcola
-    COP ed efficienze secondo le equazioni [1.4]-[1.8].
+    """Genera utility candidate e precalcola COP/efficienze.
 
-    Indici del modello:
-        HPPr -> (y, j, z, k)
-        HPUt -> (z, k)
-        Ref  -> (z, k)
-        ORC  -> (z, k)
-        CHP  -> k nella zona Z
+    Ruolo
+    -----
+    Enumera le configurazioni ammissibili prima della creazione del MILP.
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Eq. (1)-(5) per HPPr, HPUt, chiller, ORC e CHP;
+    Eq. (28)-(32) per i limiti di collocazione e ``TCondmax``.
+
+    Oggetti matematici
+    ------------------
+    ``COPPacPr_y,j,z,k``, ``COPPacUt_z,k``, ``COPGf_z,k``, ``EffOrc_z,k`` e
+    ``EffChp_k``. Indici Python: HPPr ``(y,j,z,k)``, HPUt/Ref/ORC ``(z,k)``,
+    CHP ``k`` nella zona ``Z``.
+
+    Input / Output
+    --------------
+    Riceve zone GCC e parametri termodinamici; restituisce record numerici che
+    diventano le mappe di indice delle variabili ``Bool*`` e ``F*``.
+
+    Note implementative
+    --------------------
+    Temperature assolute in kelvin;
     """
 
     # Il modello usa:
@@ -950,7 +683,7 @@ def genera_candidate_utilities(
     }
 
     # ============================================================
-    # [1.4] HPPr
+    # THI15 Eq. (1): HPPr tra una sorgente (y,j) e un pozzo (z,k).
     # Collega un punto (y,j) a temperatura inferiore
     # con un punto (z,k) a temperatura superiore.
     # ============================================================
@@ -978,7 +711,7 @@ def genera_candidate_utilities(
                         T_zk = T_zk_C + 273.15
 
                         # Eventuale limite massimo della condensazione.
-                        # [1.34] Limite TCondmax sul livello T_zk.
+                        # THI15 Eq. (31): limite TCondmax per HPPr.
                         if T_cond_max is not None and T_zk > T_cond_max:
                             continue
 
@@ -990,7 +723,7 @@ def genera_candidate_utilities(
                         if denominatore <= 0:
                             continue
 
-                        # [1.4]
+                        # THI15 Eq. (1).
                         COP_HPPr = (
                             eta_ex
                             * T_cond
@@ -1021,7 +754,7 @@ def genera_candidate_utilities(
                         )
 
     # ============================================================
-    # [1.5]-[1.8]
+    # THI15 Eq. (2)-(5).
     # HPUt, Ref e ORC sono associate a un punto (z,k).
     # Il CHP è associato al punto k della zona più calda Z.
     # ============================================================
@@ -1036,7 +769,7 @@ def genera_candidate_utilities(
             T_zk = T_zk_C + 273.15
 
             # ----------------------------------------------------
-            # [1.5] HPUt
+            # THI15 Eq. (2): HPUt tra ambiente e punto (z,k).
             #
             # Evaporatore alla sorgente ambiente T0;
             # condensatore al livello termico (z,k).
@@ -1047,8 +780,7 @@ def genera_candidate_utilities(
                 T_evap = T0 - EvaP
                 T_cond = T_zk + CondP
 
-                # [1.31] HPUt vietata sotto T0.
-                # [1.35] HPUt vietata sopra TCondmax.
+                # THI15 Eq. (28) e (32): limiti T0 e TCondmax per HPUt.
                 ammessa = (
                     z > 1
                     and T_zk >= T0
@@ -1086,7 +818,7 @@ def genera_candidate_utilities(
                         )
 
             # ----------------------------------------------------
-            # [1.6] Refrigerazione Ref
+            # THI15 Eq. (3): refrigerazione/chiller.
             #
             # Evaporatore al livello (z,k);
             # condensatore verso l'ambiente T0.
@@ -1105,7 +837,7 @@ def genera_candidate_utilities(
 
                 if denominatore > 0:
 
-                    # [1.6]
+                    # THI15 Eq. (3).
                     COP_ref = (
                         eta_ex
                         * T_cond
@@ -1130,7 +862,7 @@ def genera_candidate_utilities(
                         )
 
             # ----------------------------------------------------
-            # [1.7] ORC
+            # THI15 Eq. (4): efficienza ORC.
             #
             # Preleva calore dal processo al punto (z,k)
             # e scarica verso l'ambiente.
@@ -1147,7 +879,7 @@ def genera_candidate_utilities(
 
                 if T_hot > T_cold:
 
-                    # [1.7]
+                    # THI15 Eq. (4).
                     Eff_ORC = (
                         eta_ex
                         * (1 - T_cold / T_hot)
@@ -1171,7 +903,7 @@ def genera_candidate_utilities(
                         )
 
             # ----------------------------------------------------
-            # [1.8] CHP
+            # THI15 Eq. (5): efficienza CHP.
             #
             # È definito solamente nella zona più calda Z.
             # ----------------------------------------------------
@@ -1186,7 +918,7 @@ def genera_candidate_utilities(
                 if denominatore <= 0:
                     continue
 
-                # [1.8]
+                # THI15 Eq. (5).
                 Eff_CHP = (
                     eta_ex
                     * (
@@ -1229,21 +961,31 @@ def crea_modello_utilities(
     T_f,
     eta_ex,
 ):
-    """
-    Costruisce il MILP di preselezione delle utility
-    secondo le equazioni [1.9]-[1.36] del modello.
+    """Costruisce, senza risolverlo, il MILP di predesign delle utility.
 
-    Questa funzione NON risolve il problema.
+    Ruolo
+    -----
+    Crea parametri, variabili, vincoli e funzione obiettivo nello stesso ordine
+    concettuale della formulazione pubblicata.
 
-    Il suo compito è tradurre il modello matematico in un oggetto DOcplex:
-        1. crea il modello;
-        2. definisce le variabili decisionali;
-        3. aggiunge i vincoli;
-        4. definisce la funzione obiettivo;
-        5. restituisce tutto ciò che servirà per la successiva risoluzione.
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Eq. (6)-(33): presenza e numerosità (6)-(14),
+    bilanci energetici (15)-(19), aggiornamento GCC (20)-(22), elettricità e
+    CHP (23)-(27), collocazione (28)-(32), obiettivo exergetico (33).
 
-    DOcplex è quindi l'interfaccia Python con cui "scriviamo"
-    matematicamente il MILP. CPLEX sarà poi il solver che lo risolve.
+    Oggetti matematici
+    ------------------
+    Parametri ``Q_z,k``, ``T_z,k``; variabili ``Bool*``, ``F*``, ``Pprel``,
+    ``Papp``, ``NHL``, ``Pelec``, ``TEC``, ``TEP`` e ``PprelChp``;
+    funzione obiettivo ``FinalExergy``.
+
+    Input / Output
+    --------------
+    I record dei candidati diventano mappe indicizzate; il risultato contiene
+    il :class:`docplex.mp.model.Model` e le stesse mappe per il post-processing.
+
+
     """
 
     # ============================================================
@@ -1252,8 +994,6 @@ def crea_modello_utilities(
 
     # Importiamo la classe Model soltanto quando serve costruire il MILP.
     #
-    # In questo modo la semplice Pinch Analysis può funzionare
-    # anche senza caricare DOcplex.
     from docplex.mp.model import Model
 
     # Model() crea il contenitore matematico del problema.
@@ -1290,16 +1030,12 @@ def crea_modello_utilities(
 
     # Elenco degli indici (z,k) che esistono nella GCC.
     #
-    # Esempio:
-    # [(1,1), (1,2), (1,3), (2,1), ...]
     indici_GCC = []
 
     # Dizionari contenenti i parametri numerici del modello:
     #
     # Q_GCC[z,k] = coordinata energetica Q_zk
     # T_GCC[z,k] = temperatura T_zk
-    #
-    # Non sono variabili decisionali:
     # sono dati noti prima della soluzione del MILP.
     Q_GCC = {}
     T_GCC = {}
@@ -1383,7 +1119,7 @@ def crea_modello_utilities(
 
 
     # ============================================================
-    # [1.9]-[1.13]
+    # THI15 Eq. (6)-(10): presenza binaria e frazione di utilizzo.
     # VARIABILI DI PRESENZA E FRAZIONI DI UTILIZZO
     # ============================================================
 
@@ -1502,11 +1238,11 @@ def crea_modello_utilities(
     # del carico utilizzare.
 
     for F, Bool in (
-        (FChp, BoolChp),      # [1.9]
-        (FRef, BoolRef),      # [1.10]
-        (FORC, BoolORC),      # [1.11]
-        (FHPPr, BoolHPPr),    # [1.12]
-        (FHPUt, BoolHPUt),    # [1.13]
+        (FChp, BoolChp),      # THI15 Eq. (6)
+        (FRef, BoolRef),      # THI15 Eq. (7)
+        (FORC, BoolORC),      # THI15 Eq. (8)
+        (FHPPr, BoolHPPr),    # THI15 Eq. (9)
+        (FHPUt, BoolHPUt),    # THI15 Eq. (10)
     ):
 
         for indice in F:
@@ -1522,7 +1258,7 @@ def crea_modello_utilities(
 
 
     # ============================================================
-    # [1.14]-[1.17]
+    # THI15 Eq. (11)-(14): numero massimo di utility.
     # NUMERO MASSIMO DI UTILITY
     # ============================================================
 
@@ -1593,7 +1329,7 @@ def crea_modello_utilities(
     }
 
     # ============================================================
-    # [1.18]-[1.19]
+    # THI15 Eq. (15)-(16): calore prelevato dalla GCC.
     # CALORE PRELEVATO DALLA GCC: Pprel_yj
     # ============================================================
 
@@ -1666,7 +1402,7 @@ def crea_modello_utilities(
 
 
     # ============================================================
-    # [1.20]-[1.22]
+    # THI15 Eq. (17)-(19): calore fornito alla GCC.
     # CALORE FORNITO ALLA GCC: Papp_zk
     # ============================================================
 
@@ -1760,7 +1496,7 @@ def crea_modello_utilities(
 
 
     # ============================================================
-    # [1.23]-[1.25]
+    # THI15 Eq. (20)-(22): nuovo heat load della GCC e non-negatività.
     # NUOVO HEAT LOAD DELLA GCC: NHL_zk
     # ============================================================
 
@@ -1780,7 +1516,7 @@ def crea_modello_utilities(
 
 
     # ------------------------------------------------------------
-    # [1.23]
+    # THI15 Eq. (20): zone dalla più fredda fino a Z-1.
     # Zone dalla più fredda fino a Z-1
     # ------------------------------------------------------------
 
@@ -1805,7 +1541,7 @@ def crea_modello_utilities(
             # modifiche introdotte nelle zone a temperatura superiore.
             #
             # La zona Z viene esclusa perché ha una formulazione
-            # specifica nell'equazione [1.24].
+            # specifica nell'Eq. (21) di THI15.
             effetto_zone_superiori = modello.sum(
                 Papp[z, k] - Pprel[z, k]
                 for z in range(y + 1, Z)
@@ -1825,7 +1561,7 @@ def crea_modello_utilities(
 
 
     # ------------------------------------------------------------
-    # [1.24]
+    # THI15 Eq. (21): zona più calda Z.
     # Zona più calda Z
     # ------------------------------------------------------------
 
@@ -1844,7 +1580,7 @@ def crea_modello_utilities(
 
 
     # ============================================================
-    # [1.26]-[1.28]
+    # THI15 Eq. (23)-(25): consumo elettrico locale e totale.
     # CONSUMO ELETTRICO
     # ============================================================
 
@@ -1935,7 +1671,7 @@ def crea_modello_utilities(
 
 
     # ------------------------------------------------------------
-    # [1.28] TEC = Total Electricity Consumption
+    # THI15 Eq. (25): TEC = Total Electricity Consumption.
     # ------------------------------------------------------------
 
     # continuous_var() senza "_dict" crea una singola variabile,
@@ -1957,7 +1693,7 @@ def crea_modello_utilities(
 
 
     # ============================================================
-    # [1.29]
+    # THI15 Eq. (26): Total Electricity Production.
     # PRODUZIONE ELETTRICA: TEP
     # ============================================================
 
@@ -2005,7 +1741,7 @@ def crea_modello_utilities(
 
 
     # ============================================================
-    # [1.30]
+    # THI15 Eq. (27): calore richiesto dalle unità CHP.
     # ENERGIA TERMICA PRELEVATA DALLA SORGENTE DEL CHP
     # ============================================================
 
@@ -2027,7 +1763,7 @@ def crea_modello_utilities(
     )
 
 
-    # Le equazioni [1.31]-[1.35] non compaiono qui come
+    # Le Eq. (28)-(32) non compaiono qui tutte come
     # constraint DOcplex.
     #
     # Sono state applicate prima, durante genera_candidate_utilities().
@@ -2039,7 +1775,7 @@ def crea_modello_utilities(
     # Questo riduce anche la dimensione del MILP.
 
     # ============================================================
-    # [1.36]
+    # THI15 Eq. (33): obiettivo exergetico.
     # FUNZIONE OBIETTIVO
     # ============================================================
 
@@ -2138,15 +1874,28 @@ def crea_modello_utilities(
         "FinalExergy": FinalExergy,
     }
 
+# ============================================================================
+# 9_SOLVE - RISOLUZIONE E LETTURA DELLE VARIABILI
+# ============================================================================
+
 def risolvi_modello_utilities(
     componenti,
     log_output=False,
     tolleranza=1e-6,
 ):
-    """
-    Risolve il MILP e ricostruisce le caratteristiche
-    fisiche delle utility selezionate.
-    """
+    """Risolve il MILP e ricostruisce le grandezze fisiche delle utility.
+
+    Ruolo
+    -----
+    Invoca CPLEX e legge la soluzione nelle strutture restituite
+
+
+    Input / Output
+    --------------
+    Riceve il dizionario del costruttore del modello e restituisce
+    utility selezionate e dimensioni del MILP.
+
+  """
 
     modello = componenti["modello"]
 
@@ -2416,7 +2165,7 @@ def risolvi_modello_utilities(
     # CHP
     #
     # FChp * Q_Zk = calore fornito al processo.
-    # [1.29]-[1.30] ricostruiscono fuel e potenza elettrica.
+    # THI15 Eq. (26)-(27): ricostruzione di fuel e potenza elettrica.
     # ------------------------------------------------------------
 
     CHP_selezionati = []
@@ -2542,18 +2291,32 @@ def risolvi_modello_utilities(
 
     return risultati
 
-######################################################à
-
-#PREDESIGN DELLE UTILITIES
+# Funzione orchestratrice della pipeline di predesign.
 
 def esegui_predesign_utilities(dati_pinch, log_output=False):
-    """Discretizza la GCC, costruisce e risolve il utility predesign MILP."""
+    """Orchestra discretizzazione, creazione di utility candidate, costruzione del modello matematico,
+    risoluzione del modello .
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Sec. 2.1.1-2.1.7 ed Eq. (1)-(33).
+
+    Oggetti matematici
+    ------------------
+    ``Z``, ``S_z``, candidati, modello MILP e soluzione completa.
+
+    Input / Output
+    --------------
+    Acquisisce il dizionario costruito dalla Pinch Analysis e restituisce i risultati della selezione delle utilities.
+
+
+    """
 
     configurazione = dati_pinch["configurazione"]
     utilities = configurazione["utilities"]
 
     # --------------------------------------------------------
-    # Discretizzazione richiesta dal modello di predesign.
+    # Discretizzazione
     # --------------------------------------------------------
 
     zone_GCC, S_z = discretizza_GCC(
@@ -2563,7 +2326,7 @@ def esegui_predesign_utilities(dati_pinch, log_output=False):
     )
 
     # --------------------------------------------------------
-    # Generazione delle utility candidate [1.4]-[1.8].
+    # THI15 Eq. (1)-(5): generazione delle utility candidate.
     # --------------------------------------------------------
 
     candidati = genera_candidate_utilities(
@@ -2578,7 +2341,7 @@ def esegui_predesign_utilities(dati_pinch, log_output=False):
     )
 
     # --------------------------------------------------------
-    # Costruzione MILP [1.9]-[1.36].
+    # THI15 Eq. (6)-(33): costruzione del MILP.
     # --------------------------------------------------------
 
     componenti = crea_modello_utilities(
@@ -2606,7 +2369,7 @@ def esegui_predesign_utilities(dati_pinch, log_output=False):
 
     zone_milp = componenti["zone_milp"]
 
-    # Diagnostica del predesign.
+    # Stampa risultati.
     risultati["diagnostica"] = {
         "pinch": {
             "QH_min_kW": dati_pinch["QH_min_kW"],
@@ -2678,9 +2441,9 @@ def esegui_predesign_utilities(dati_pinch, log_output=False):
 
     return risultati
 
-########################################################
-
-# 6. OUTPUT E PLOTTING 
+# ============================================================================
+# 10_POST_PROCESSING - CURVE E REPORTING
+# ============================================================================
 
 def costruisci_GCC_aggiornata(
     soluzione,
@@ -2691,7 +2454,23 @@ def costruisci_GCC_aggiornata(
     evaP,
     condP,
 ):
-    """Ricostruisce graficamente la GCC separando processo e utilities."""
+    """Ricostruisce graficamente la GCC aggiornata includendo l'effetto delle utility.
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015),  Sec. 3 per la
+    rappresentazione Integrated Composite Curve.
+
+    Oggetti matematici
+    ------------------
+    ``NHL_z,k``, ``Papp_z,k`` e ``Pprel_z,k``.
+
+    Input / Output
+    --------------
+    Legge i valori DOcplex e restituisce punti ``(Q, T)`` e relativi eventi.
+
+
+    """
 
     zone_milp = riordina_zone_per_milp(zone_GCC)
     tolleranza = 1e-9
@@ -2844,7 +2623,21 @@ def costruisci_GCC_aggiornata(
     punti = [(Q, T) for Q, T, _ in punti_evento]
     return punti, punti_evento
 def costruisci_curva_utilities(risultati_milp):
-    """Combina tutte le utility selezionate in una curva cumulativa."""
+    """Combina le utility selezionate nella curva cumulativa dell'ICC.
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Sec. 3.1, descrizione dell'Integrated Composite
+    Curve.
+
+    Oggetti matematici
+    ------------------
+    Carichi a evaporatore/condensatore, ORC e CHP letti dalla soluzione.
+
+    Input / Output
+    --------------
+    Restituisce punti ``(Q_kW, T_C)`` ordinati per temperatura.
+    """
     carichi_isotermi = {}
 
     def aggiungi(T_C, delta_Q):
@@ -2888,7 +2681,8 @@ def grafico_TQ(
     xticks=None,
     yticks=None,
 ):
-    """Rappresenta Composite Curves, GCC, pockets oppure ICC."""
+    """Rappresenta Composite Curves, GCC, pockets e ICC.
+    """
     # Import ritardato: calcoli Pinch/MILP/HENS non richiedono Matplotlib.
     import matplotlib.pyplot as plt
 
@@ -3006,8 +2800,17 @@ def grafico_TQ(
     else:
         plt.close(fig)
     return fig, ax
+
+
+# ============================================================================
+# 11_STAMPA RISULTATI E GRAFICI
+# ============================================================================
+
 def stampa_risultati_milp(risultati):
-    """Stampa la soluzione del MILP di utility targeting."""
+    """Stampa soluzione, target, utility e dimensioni del MILP.
+
+
+    """
 
     diagnostica = risultati["diagnostica"]
     pinch = diagnostica["pinch"]
@@ -3152,7 +2955,13 @@ def stampa_risultati_milp(risultati):
     print(f"Cold MER residuo: {risultati['cold_MER_residuo_kW']:.3f} kW")
     print(f"FinalExergy: {risultati['FinalExergy_kW']:.3f} kW")
 def salva_grafici(dati_pinch, risultati_milp, cartella):
-    """Salva Composite Curves, GCC, ICC e self-sufficient pockets."""
+    """Salva Composite Curves, GCC, ICC e self-sufficient pockets.
+
+    Riferimento bibliografico
+    ------------------------
+    Thibault et al. (2015), Fig. 1-9. Funzione di reporting; non costruisce
+    variabili o vincoli matematici.
+    """
 
 
     cartella = Path(cartella)
@@ -3254,5 +3063,3 @@ def salva_grafici(dati_pinch, risultati_milp, cartella):
         xticks=list(range(0, 2001, 200)) if caso_dairy else None,
         yticks=dairy_yticks,
     )
-
-#####################-------################------#################-----###################################

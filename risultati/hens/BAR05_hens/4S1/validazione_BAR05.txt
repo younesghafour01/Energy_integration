@@ -1,66 +1,45 @@
-==============================================================================
-VALIDAZIONE BAR05 - CASO 4S1
-==============================================================================
+====================================================================================================
+VALIDAZIONE HENS GENERALE - BAR05 - Problem 4S1
+====================================================================================================
+Fonte: Barbaro & Bagajewicz (2005), Problem 4S1, Tables 1-4 and Figure 14
+Status solver: integer optimal solution
 
-CONFIGURAZIONE
-------------------------------------------------------------------------------
-Voce                                         BAR05       Simulazione     Esito
-Delta Tmin [C]                                20.0              20.0        OK
-Heat-transfer zones                              2                 2        OK
-Intervalli totali                               26                26        OK
-Separazione al pinch                          True              True        OK
-Numero exchanger                                 7                 7        OK
-Numero shell                                     7               7.0        OK
-
-UTILITIES
-------------------------------------------------------------------------------
-Voce                             BAR05 [kW]     Simulato [kW]       Errore %
-Hot utility                      168.055556        168.055556       0.000000
-Cold utility                     145.833333        145.833333      -0.000000
-
-EXCHANGER - carico_termico E AREA
---------------------------------------------------------------------------------------------------------------
-Match               Zona       Q BAR05         Q sim     err Q %       A BAR05         A sim     err A %
-H1-C1                  1    109.722222    109.722222     -0.0000        99.800       103.370      3.5768
-H1-C2                  1     29.166667     29.166667      0.0000        48.400        46.471     -3.9862
-H1-C2                  2     76.388889     76.388889      0.0000        77.400        78.856      1.8811
-H1-CU                  2    145.833333    145.833333      0.0000       109.000       109.160      0.1472
-H2-C1                  2    472.222222    472.222222      0.0000       551.400       558.210      1.2351
-H2-C2                  2    194.444444    194.444444     -0.0000       312.400       317.906      1.7625
-HU-C1                  1    168.055556    168.055556      0.0000       160.200       159.618     -0.3634
-
-AREA TOTALE
-------------------------------------------------------------------------------
-Riferimento                           BAR05 [m2]     Simulato [m2]    Errore %
-Table 3                                 1358.700          1373.591      1.0960
-BAR05 - 26 intervalli                   1374.500          1373.591     -0.0661
-
-DIMENSIONE DEL PROBLEMA
-------------------------------------------------------------------------------
-Grandezza                                    BAR05       Simulazione
-Intervalli                                      26                26
-Variabili continue BAR05                       396              n.d.
-Variabili discrete BAR05                        71               147
-Variabili totali                               467              1142
-Vincoli                                       1079              2437
-
-TEMPERATURE RICOSTRUITE
+GRANDEZZE GLOBALI
 ----------------------------------------------------------------------------------------------------
-Match               Zona       Th,in      Th,out       Tc,in      Tc,out
-H1-C1                  1     175.000     135.500     105.000     124.750
-H1-C2                  1     135.500     125.000     105.000     112.000
-H1-C2                  2     125.000      97.500      40.000     105.000
-H1-CU                  2      97.500      45.000      15.000      25.000
-H2-C1                  2     125.000      65.000      20.000     105.000
-H2-C2                  2     125.000      65.000      40.000     105.000
-HU-C1                  1     180.000     179.000     124.750     155.000
+Grandezza                                      Fonte              Simulato                Errore %
+TAC_USD_year                    SOURCE_NOT_SPECIFIED         185510.204365  NOT_REPORTED_BY_SOURCE
+hot_utility_kW                  SOURCE_NOT_SPECIFIED            168.055556  NOT_REPORTED_BY_SOURCE
+cold_utility_kW                 SOURCE_NOT_SPECIFIED            145.833333  NOT_REPORTED_BY_SOURCE
+numero_exchanger                            7.000000              7.000000               +0.000000
+numero_shell                    SOURCE_NOT_SPECIFIED              7.000000  NOT_REPORTED_BY_SOURCE
+area_totale_m2                           1358.700000           1373.590778               +1.095958
 
-BILANCIO ENERGETICO
-------------------------------------------------------------------------------
-Hot process totale : 1027.777778 kW
-Cold process totale: 1050.000000 kW
-HU totale          : 168.055556 kW
-CU totale          : 145.833333 kW
-Residuo globale    : +1.705303e-13 kW
+TOPOLOGIA COME MULTINSIEME DI MATCH
+----------------------------------------------------------------------------------------------------
+Errore conteggi topologia [%]: +0.000000
+H1-C1: fonte=1, simulato=1
+H1-C2: fonte=2, simulato=2
+H1-CU: fonte=1, simulato=1
+H2-C1: fonte=1, simulato=1
+H2-C2: fonte=1, simulato=1
+HU-C1: fonte=1, simulato=1
 
-==============================================================================
+DUTY E AREA AGGREGATI PER MATCH
+----------------------------------------------------------------------------------------------------
+Match                    Q fonte    Q simulato      Errore Q %       A fonte    A simulata      Errore A %
+H1-C1                    109.722       109.722       -0.000000        99.800       103.370       +3.576818
+H1-C2                    105.556       105.556       +0.000000       125.800       125.327       -0.376301
+H1-CU                    145.833       145.833       +0.000000       109.000       109.160       +0.147208
+H2-C1                    472.222       472.222       +0.000000       551.400       558.210       +1.235073
+H2-C2                    194.444       194.444       -0.000000       312.400       317.906       +1.762474
+HU-C1                    168.056       168.056       +0.000000       160.200       159.618       -0.363368
+
+DIMENSIONE MILP
+----------------------------------------------------------------------------------------------------
+Variabili: 1142
+Binarie: 147
+Vincoli: 2437
+Intervalli: 26
+Zone: 2
+
+Nota: gli errori percentuali riguardano solo il post-solve; nessun benchmark entra nel MILP.

@@ -1,0 +1,51 @@
+====================================================================================================
+VALIDAZIONE HENS GENERALE - BAR05 - Problem EX1
+====================================================================================================
+Fonte: Barbaro & Bagajewicz (2005), Section 3.4, Tables 13-16 and Figure 17
+Status solver: integer optimal, tolerance
+
+GRANDEZZE GLOBALI
+----------------------------------------------------------------------------------------------------
+Grandezza                                      Fonte              Simulato                Errore %
+TAC_USD_year                    SOURCE_NOT_SPECIFIED         515333.093299  NOT_REPORTED_BY_SOURCE
+hot_utility_kW                           2957.000000           2957.000000               -0.000000
+cold_utility_kW                          2332.000000           2332.000000               +0.000000
+numero_exchanger                            8.000000              9.000000              +12.500000
+numero_shell                    SOURCE_NOT_SPECIFIED              9.000000  NOT_REPORTED_BY_SOURCE
+area_totale_m2                           6997.000000           7157.052523               +2.287445
+
+TOPOLOGIA COME MULTINSIEME DI MATCH
+----------------------------------------------------------------------------------------------------
+Errore conteggi topologia [%]: +12.500000
+H1-C1: fonte=1, simulato=1
+H1-C2: fonte=1, simulato=1
+H1-CU: fonte=1, simulato=1
+H2-C1: fonte=1, simulato=1
+H2-C2: fonte=1, simulato=1
+H3-C1: fonte=1, simulato=1
+H3-C2: fonte=1, simulato=1
+H3-CU: fonte=0, simulato=1
+HU-C2: fonte=1, simulato=1
+
+DUTY E AREA AGGREGATI PER MATCH
+----------------------------------------------------------------------------------------------------
+Match                    Q fonte    Q simulato      Errore Q %       A fonte    A simulata      Errore A %
+H1-C1                   1184.083      1751.972      +47.960213       958.900      1209.717      +26.156753
+H1-C2                   1688.639      1688.639       +0.000000      2269.400      2491.340       +9.779690
+H1-CU                   2332.000      1764.111      -24.352011       483.600       382.691      -20.866219
+H2-C1                    402.333       402.333       -0.000000       407.100       322.830      -20.700140
+H2-C2                    612.000       612.000       +0.000000       425.600       385.685       -9.378587
+H3-C1                   1031.167       463.278      -55.072464       959.300       670.049      -30.152340
+H3-C2                   2749.778      2749.778       -0.000000      1258.600      1322.211       +5.054082
+H3-CU                       n.d.       567.889            n.d.          n.d.       138.291            n.d.
+HU-C2                   2957.000      2957.000       +0.000000       234.500       234.240       -0.110916
+
+DIMENSIONE MILP
+----------------------------------------------------------------------------------------------------
+Variabili: 2585
+Binarie: 208
+Vincoli: 3584
+Intervalli: 49
+Zone: 2
+
+Nota: gli errori percentuali riguardano solo il post-solve; nessun benchmark entra nel MILP.

@@ -1,13 +1,670 @@
+"""Estensione TRA15 del core HENS BAR05.
+
+Architettura conservativa del modulo
+------------------------------------
+1_INPUT-5_DISCRETIZZAZIONE: il core BAR05 costruisce correnti, utility fisiche,
+    partizione e insiemi base; questo modulo aggiunge tecnologie multiple,
+    flexible streams, utility virtuali e gli insiemi TRA15.
+6_VARIABILI / 7_VINCOLI: riuso del modello BAR05 e del non-isothermal mixing
+    Eq. (7)-(10), con aggiunta dei domini indicizzati per tecnologia.
+8_FUNZIONE_OBIETTIVO: TRA15 Eq. (11), costruita nel core comune.
+9_SOLVE: preparazione e risoluzione TRA15.
+10_POST_PROCESSING: estrazione e stampa della rete.
+11_VALIDAZIONE_DIAGNOSTICA: confronto con TRA15 Test 1.
+
+"""
+
 from __future__ import annotations
 
-import time
+
 
 from pathlib import Path
 
 from src.hens.BAR05_hens import (
-    prepara_HENS_TRA15 as prepara_HENS_TRA15_base,
-    risolvi_HEN as risolvi_HEN_base,
+    _prepara_modello as prepara_modello_base,
+    UtilityHEN,
+    aggiungi_mixing_non_isotermo,
+    costruisci_insiemi_base,
+    converti_temperatura,
+    risolvi_modello as risolvi_modello_base,
 )
+
+
+class UtilityVirtualeTRA15(UtilityHEN):
+    """Utility virtuale introdotta da TRA15 per una surplus part."""
+
+    def __init__(self, **dati):
+        super().__init__(**dati)
+        self.virtuale = True
+
+class TecnologiaHEN:
+    """Rappresenta una tecnologia HEX candidata e i relativi match ammessi.
+
+    È l'estensione TRA15 del modello base BAR05: ``FHEX_t`` corregge l'area e
+    ``P_t`` limita gli accoppiamenti (TRA15, Sec. 2.2.2, Eq. (6)-(11)).
+    """
+
+    def __init__(
+        self,
+        codice,
+        nome,
+        FHEX,
+        A_max_m2,
+        costo_fisso_USD_per_year,
+        costo_area_USD_per_m2_year,
+        matches,
+        enabled=True,
+        virtuale=False,
+    ):
+        """Memorizza prestazioni, limiti d'area, costi e insieme P_t."""
+        self.codice = str(codice)
+        self.nome = str(nome)
+
+        self.fattore_area = float(FHEX)
+        self.A_max_m2 = float(A_max_m2)
+
+        self.costo_fisso_USD_per_year = float(
+            costo_fisso_USD_per_year
+        )
+
+        self.costo_area_USD_per_m2_year = float(
+            costo_area_USD_per_m2_year
+        )
+
+        self.matches = frozenset(matches)
+
+        self.enabled = bool(enabled)
+        self.virtuale = bool(virtuale)
+
+
+def costruisci_tecnologie(configurazione):
+    """Costruisce tecnologie abilitate e insiemi di match ``P_t``.
+
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 2.2.2, definizione di ``T`` e ``P_t``, Eq. (6)-(11).
+
+    Oggetti matematici
+    ------------------
+    ``T``, ``P_t``, ``FHEX_t``, ``A_ijt^max``, ``c_ijt^F`` e ``c_ijt^A``.
+
+    Input / Output
+    --------------
+    Converte ``hens.technologies`` in oggetti :class:`TecnologiaHEN` e mappe
+    indicizzate per codice tecnologia.
+    """
+    if "hens" not in configurazione:
+        raise ValueError("La configurazione non contiene la sezione 'hens'.")
+    dati_hens = configurazione["hens"]
+    if "technologies" not in dati_hens:
+        raise ValueError("La sezione 'hens' non contiene 'technologies'.")
+    dati_tecnologie = dati_hens["technologies"]
+    if not isinstance(dati_tecnologie, list):
+        raise ValueError("'hens.technologies' deve essere una lista.")
+    hot_codes = set()
+    cold_codes = set()
+    for flusso in configurazione["flussi"]:
+        if not flusso.disponibile:
+            continue
+
+        if flusso.tipo == "hot":
+            hot_codes.add(flusso.codice)
+
+        elif flusso.tipo == "cold":
+            cold_codes.add(flusso.codice)
+    for dati_utility in dati_hens.get("utilities", []):
+        if not dati_utility.get("disponibile", True):
+            continue
+        codice = str(dati_utility["codice"])
+        tipo = str(dati_utility["tipo"]).strip().lower()
+        if tipo == "hot":
+            hot_codes.add(codice)
+        elif tipo == "cold":
+            cold_codes.add(codice)
+    tecnologie = {}
+    codici = set()
+    for dati in dati_tecnologie:
+        if not isinstance(dati, dict):
+            raise ValueError("Ogni tecnologia HENS deve essere un dizionario.")
+        campi_obbligatori = [
+            "codice",
+            "FHEX",
+            "A_max_m2",
+            "costo_fisso_USD_per_year",
+            "costo_area_USD_per_m2_year",
+            "matches",
+        ]
+        mancanti = [campo for campo in campi_obbligatori if campo not in dati]
+        if mancanti:
+            raise ValueError(f"Tecnologia HENS incompleta. Campi mancanti: {mancanti}")
+        codice = str(dati["codice"])
+        if codice in codici:
+            raise ValueError(f"Tecnologia HENS duplicata: {codice}")
+        codici.add(codice)
+        enabled = bool(dati.get("enabled", True))
+        FHEX = float(dati["FHEX"])
+        A_max_m2 = float(dati["A_max_m2"])
+        costo_fisso = float(dati["costo_fisso_USD_per_year"])
+        costo_area = float(dati["costo_area_USD_per_m2_year"])
+        if FHEX <= 0 or FHEX > 1:
+            raise ValueError(
+                f"FHEX non valido per {codice}: {FHEX}. Deve essere compreso nell'intervallo (0, 1]."
+            )
+        if A_max_m2 <= 0:
+            raise ValueError(f"A_max_m2 non valido per {codice}: {A_max_m2}")
+        if costo_fisso < 0:
+            raise ValueError(f"Costo fisso negativo per {codice}: {costo_fisso}")
+        if costo_area < 0:
+            raise ValueError(f"Costo area negativo per {codice}: {costo_area}")
+        matches = set()
+        for match in dati["matches"]:
+            if not isinstance(match, (list, tuple)) or len(match) != 2:
+                raise ValueError(
+                    f"Match non valido in {codice}: {match}. Ogni match deve essere [hot, cold]."
+                )
+            i = str(match[0])
+            j = str(match[1])
+            if i not in hot_codes:
+                raise ValueError(
+                    f"Match non valido per {codice}: ({i}, {j}). {i} non è una hot stream disponibile."
+                )
+            if j not in cold_codes:
+                raise ValueError(
+                    f"Match non valido per {codice}: ({i}, {j}). {j} non è una cold stream disponibile."
+                )
+            chiave_match = (i, j)
+            if chiave_match in matches:
+                raise ValueError(f"Match duplicato in {codice}: {chiave_match}")
+            matches.add(chiave_match)
+        tecnologia = TecnologiaHEN(
+            codice=codice,
+            nome=str(dati.get("nome", codice)),
+            FHEX=FHEX,
+            A_max_m2=A_max_m2,
+            costo_fisso_USD_per_year=costo_fisso,
+            costo_area_USD_per_m2_year=costo_area,
+            matches=frozenset(matches),
+            enabled=enabled,
+        )
+        if not enabled:
+            continue
+        tecnologie[codice] = tecnologia
+    T = sorted(tecnologie.keys())
+    match_per_configurazione = {t: set(tecnologie[t].matches) for t in T}
+    if not T:
+        raise ValueError("Nessuna tecnologia HENS abilitata.")
+    return {
+        "T": T,
+        "tecnologie": tecnologie,
+        "match_per_configurazione": match_per_configurazione,
+    }
+
+
+def costruisci_flussi_flessibili(configurazione):
+    """Valida e indicizza le flexible streams dichiarate nel JSON.
+
+    Il flusso nominale rappresenta la corrente completa: ``T_out`` coincide
+    con ``T_out_min_C`` per una hot stream e con ``T_out_max_C`` per una cold
+    stream. Il tratto tra i due limiti e la surplus part.
+
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 2.2.3, insiemi ``HF_z``/``CF_z`` e intervallo
+    ``(T_out^L, T_out^U)``.
+
+    Oggetti matematici
+    ------------------
+    Flexible streams e relative surplus parts.
+
+    Note implementative
+    --------------------
+    Il dizionario indicizzato per codice è una IMPLEMENTATION CHOICE; i limiti
+    dichiarati non vengono modificati.
+    """
+
+    processi = {
+        flusso.codice: flusso
+        for flusso in configurazione ["flussi"]
+        if flusso.disponibile
+    }
+    codici_utility = {
+        str(dati["codice"])
+        for dati in configurazione.get("hens", {}).get("utilities", [])
+    }
+    flessibili = {}
+
+    for dati in configurazione.get("hens", {}).get("flexible_streams", []):
+        if not dati.get("enabled", True):
+            continue
+
+        codice = str(dati["codice"])
+        if codice in codici_utility:
+            raise ValueError(f"Una utility non puo essere flexible: {codice}.")
+        if codice not in processi:
+            raise ValueError(
+                f"Flexible stream non trovata tra i flussi di processo: {codice}."
+            )
+        if codice in flessibili:
+            raise ValueError(f"Flexible stream duplicata: {codice}.")
+
+        corrente = processi[codice]
+        T_min = float(dati["T_out_min_C"])
+        T_max = float(dati["T_out_max_C"])
+        if T_min >= T_max:
+            raise ValueError(f"Per {codice} deve valere T_out_min_C < T_out_max_C.")
+
+        if corrente.tipo == "hot":
+            coerente = corrente.T_in > T_max and abs(corrente.T_out - T_min) <= 1e-9
+        else:
+            coerente = corrente.T_in < T_min and abs(corrente.T_out - T_max) <= 1e-9
+        if not coerente:
+            raise ValueError(
+                f"Range di uscita non coerente con il verso e i dati di {codice}."
+            )
+
+        flessibili[codice] = {
+            "codice": codice,
+            "tipo": corrente.tipo,
+            "T_out_min_C": T_min,
+            "T_out_max_C": T_max,
+            "CP_kW_K": corrente.CP,
+            "corrente": corrente,
+        }
+
+    return flessibili
+
+
+def estrai_estremi_termici_flessibili(flussi_flessibili):
+    """Restituisce gli estremi reali aggiunti alla partizione da TRA15."""
+    return [
+        (temperatura, dati["tipo"])
+        for dati in flussi_flessibili.values()
+        for temperatura in (dati["T_out_min_C"], dati["T_out_max_C"])
+    ]
+
+
+
+
+def costruisci_utilities_virtuali(
+    intervalli,
+    flussi_flessibili,
+    flussi,
+    delta_T_min,
+    delta_T_partition_max,
+):
+    """Crea le utility virtuali delle surplus parts flessibili.
+
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 2.2.3, Eq. (12)-(13).
+
+    Oggetti matematici
+    ------------------
+    Virtual hot utility ``i_v`` e virtual cold utility ``j_v``.
+
+    Gli estremi sono ricavati da una partizione preliminare priva di utility
+    virtuali. Le temperature della cold utility vengono memorizzate sulla
+    scala reale; la traslazione ``+delta_T_min`` le riporta ai valori di
+    TRA15 Eq. (13) sulla scala HENS.
+
+    ``h_default`` e il massimo coefficiente di film tra tutte le process
+    streams disponibili. E una convenzione puramente numerica: la tecnologia
+    virtuale ha costo nullo e non condivide match fisici.
+
+    La costruzione con una coppia VHU/VCU e stata verificata sui benchmark
+    HENS economici a zona unica; non modella utility virtuali distinte per zona.
+    """
+
+    if not flussi_flessibili:
+        return {"hot": [], "cold": []}
+
+    T_sup = max(T_U for zona in intervalli.values() for T_U, _ in zona)
+    T_inf = min(T_L for zona in intervalli.values() for _, T_L in zona)
+    estensione = 1.5 * float(delta_T_partition_max)
+    h_default = max(
+        float(f.h_W_m2K) for f in flussi if f.h_W_m2K is not None and f.disponibile
+    )
+    virtuali = {"hot": [], "cold": []}
+
+    if any(dati["tipo"] == "cold" for dati in flussi_flessibili.values()):
+        virtuali["hot"].append(
+            UtilityVirtualeTRA15(
+                codice="VHU",
+                nome="Virtual hot utility",
+                tipo="hot",
+                T_in=T_sup + estensione,
+                T_out=T_sup,
+                h_W_m2K=h_default,
+                costo_USD_per_kW_year=0.0,
+            )
+        )
+
+    if any(dati["tipo"] == "hot" for dati in flussi_flessibili.values()):
+        T_out_reale = converti_temperatura(
+                                            T_inf,
+                                            "cold",
+                                            delta_T_min,
+                                            "hens",
+                                            "reale",
+                                        )
+        virtuali["cold"].append(
+            UtilityVirtualeTRA15(
+                codice="VCU",
+                nome="Virtual cold utility",
+                tipo="cold",
+                T_in=T_out_reale - estensione,
+                T_out=T_out_reale,
+                h_W_m2K=h_default,
+                costo_USD_per_kW_year=0.0,
+            )
+        )
+
+    return virtuali
+
+
+def aggiungi_tecnologia_virtuale(
+    tecnologie_HEN,
+    utilities_HEN,
+    flussi_flessibili,
+):
+    """Aggiunge la tecnologia HEX gratuita ai soli match virtuali.
+
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 2.2.3, paragrafo successivo alle Eq. (14)-(15).
+
+    Oggetti matematici
+    ------------------
+    Tecnologia virtuale, insieme ``P_t`` e costi nulli.
+    """
+
+    VHU = [
+        u.codice for u in utilities_HEN["hot"]
+        if getattr(u, "virtuale", False)
+    ]
+    VCU = [
+        u.codice for u in utilities_HEN["cold"]
+        if getattr(u, "virtuale", False)
+    ]
+    matches = {
+        (vhu, codice)
+        for vhu in VHU
+        for codice, dati in flussi_flessibili.items()
+        if dati["tipo"] == "cold"
+    } | {
+        (codice, vcu)
+        for vcu in VCU
+        for codice, dati in flussi_flessibili.items()
+        if dati["tipo"] == "hot"
+    }
+    if not matches:
+        return tecnologie_HEN
+
+    codice = "TVIRTUAL"
+    if codice in tecnologie_HEN["tecnologie"]:
+        raise ValueError(f"Codice tecnologia riservato gia utilizzato: {codice}.")
+
+    # U e intera ma non limitata: A_max e solo l'area di una shell virtuale.
+    # Si riusa il maggiore A_max dichiarato dal designer, senza magic number.
+    A_max = max(t.A_max_m2 for t in tecnologie_HEN["tecnologie"].values())
+    tecnologia = TecnologiaHEN(
+        codice=codice,
+        nome="Virtual heat exchanger technology",
+        FHEX=1.0,
+        A_max_m2=A_max,
+        costo_fisso_USD_per_year=0.0,
+        costo_area_USD_per_m2_year=0.0,
+        matches=frozenset(matches),
+        virtuale=True,
+    )
+    tecnologie_HEN["T"].append(codice)
+    tecnologie_HEN["tecnologie"][codice] = tecnologia
+    tecnologie_HEN["match_per_configurazione"][codice] = set(matches)
+    return tecnologie_HEN
+
+# ============================================================================
+# 3_INSIEMI_E_INDICI - INSIEMI HENS, MATCH E DOMINI DI TRASPORTO
+# ============================================================================
+
+
+def forza_temperature_uscita_flessibili(
+    modello_HEN,
+    insiemi_HEN,
+    flussi_flessibili,
+    target_per_stream,
+):
+    """Aggiunge un vincolo diagnostico su ``T_out`` di una flexible stream.
+
+    Riferimento bibliografico
+    ------------------------
+    IMPLEMENTATION CHOICE - non direttamente definita da TRA15.
+
+    Oggetti matematici
+    ------------------
+    Carico della surplus part, equivalente a un target di temperatura d'uscita.
+
+    Serve esclusivamente per sensitivity test; se target_per_stream è vuoto
+    non modifica il modello.
+    """
+
+    if not target_per_stream:
+        return modello_HEN
+
+    mdl = modello_HEN["modello"]
+    q = modello_HEN["q"]
+
+    VHU = {
+        codice
+        for z in insiemi_HEN["Z"]
+        for codice in insiemi_HEN.get("VHU", {}).get(z, [])
+    }
+    VCU = {
+        codice
+        for z in insiemi_HEN["Z"]
+        for codice in insiemi_HEN.get("VCU", {}).get(z, [])
+    }
+
+    vincoli = []
+
+    for codice, T_target in target_per_stream.items():
+
+        if codice not in flussi_flessibili:
+            raise ValueError(
+                f"{codice} non è una flexible stream."
+            )
+
+        dati = flussi_flessibili[codice]
+        T_target = float(T_target)
+
+        T_min = dati["T_out_min_C"]
+        T_max = dati["T_out_max_C"]
+        CP = dati["CP_kW_K"]
+
+        if not (T_min <= T_target <= T_max):
+            raise ValueError(
+                f"T_out forzata di {codice} fuori range: "
+                f"{T_target} °C non appartiene a [{T_min}, {T_max}]."
+            )
+
+        if dati["tipo"] == "hot":
+
+            Q_virtuale_target = CP * (T_target - T_min)
+
+            indici_virtuali = [
+                indice
+                for indice in modello_HEN["q"]
+                if indice[1] == codice and indice[3] in VCU
+            ]
+
+        else:
+
+            Q_virtuale_target = CP * (T_max - T_target)
+
+            indici_virtuali = [
+                indice
+                for indice in modello_HEN["q"]
+                if indice[3] == codice and indice[1] in VHU
+            ]
+
+        if not indici_virtuali:
+            raise RuntimeError(
+                f"Nessun match virtuale trovato per {codice}."
+            )
+
+        vincoli.append(
+            mdl.add_constraint(
+                mdl.sum(q[indice] for indice in indici_virtuali)
+                == Q_virtuale_target,
+                ctname=f"DIAG_Tout_{codice}_{T_target:g}",
+            )
+        )
+
+    modello_HEN["vincoli_Tout_flessibile_diagnostica"] = vincoli
+
+    return modello_HEN
+
+
+def costruisci_insiemi_estesi(
+    flussi,
+    utilities,
+    intervalli,
+    delta_T_min,
+    match_permessi=None,
+    NI_H=None,
+    NI_C=None,
+    flexible_streams=None,
+):
+    """Estende gli insiemi BAR05 con flexible streams e utility virtuali."""
+    insiemi = costruisci_insiemi_base(
+        flussi=flussi,
+        utilities=utilities,
+        intervalli=intervalli,
+        delta_T_min=delta_T_min,
+        match_permessi=match_permessi,
+        NI_H=NI_H,
+        NI_C=NI_C,
+    )
+    Z, H, C = insiemi["Z"], insiemi["H"], insiemi["C"]
+    HU, CU = insiemi["HU"], insiemi["CU"]
+    M_i, N_j = insiemi["M_i"], insiemi["N_j"]
+    T_intervallo = insiemi["T_intervallo"]
+    flexible_streams = flexible_streams or {}
+    virtual_hot = {
+        u.codice for u in utilities.get("hot", [])
+        if getattr(u, "virtuale", False)
+    }
+    virtual_cold = {
+        u.codice for u in utilities.get("cold", [])
+        if getattr(u, "virtuale", False)
+    }
+    VHU = {z: [i for i in HU[z] if i in virtual_hot] for z in Z}
+    VCU = {z: [j for j in CU[z] if j in virtual_cold] for z in Z}
+    HF = {
+        z: [i for i in H[z] if i in flexible_streams
+            and flexible_streams[i]["tipo"] == "hot"]
+        for z in Z
+    }
+    CF = {
+        z: [j for j in C[z] if j in flexible_streams
+            and flexible_streams[j]["tipo"] == "cold"]
+        for z in Z
+    }
+
+    def intervalli_surplus(z, codice, indici):
+        dati = flexible_streams[codice]
+        T_min = converti_temperatura(
+            dati["T_out_min_C"], dati["tipo"], delta_T_min, "reale", "hens"
+        )
+        T_max = converti_temperatura(
+            dati["T_out_max_C"], dati["tipo"], delta_T_min, "reale", "hens"
+        )
+        return [
+            indice for indice in indici
+            if T_intervallo[z, indice]["T_sup"] <= T_max + 1e-9
+            and T_intervallo[z, indice]["T_inf"] >= T_min - 1e-9
+        ]
+
+    insiemi.update(
+        {
+            "VHU": VHU,
+            "VCU": VCU,
+            "HF": HF,
+            "CF": CF,
+            "MF": {
+                (z, i): intervalli_surplus(z, i, M_i[z, i])
+                for z in Z for i in HF[z]
+            },
+            "NF": {
+                (z, j): intervalli_surplus(z, j, N_j[z, j])
+                for z in Z for j in CF[z]
+            },
+            "flexible_streams": flexible_streams,
+        }
+    )
+    return insiemi
+
+
+def genera_indici_scambio(insiemi_HEN, tolleranza=1e-09):
+    """Genera gli indici ``q[z,i,m,j,n]`` termicamente ammissibili.
+
+    Riferimento bibliografico
+    ------------------------
+    BAR05, Sec. 2.1, insieme ``P`` e insiemi ``P_im^H``/``P_jn^C``;
+    TRA15, Eq. (14)-(15), esclusioni delle utility virtuali.
+
+    Oggetti matematici
+    ------------------
+    Variabile di trasporto ``q_im,jn^z``.
+
+    Input / Output
+    --------------
+    Restituisce tuple canoniche ``(z, i, m, j, n)``.
+
+    Note implementative
+    --------------------
+    Le esclusioni virtuali sono applicate prima della creazione delle variabili,
+    senza creare variabili ``q`` fissate artificialmente a zero.
+    """
+    Z = insiemi_HEN["Z"]
+    H = insiemi_HEN["H"]
+    C = insiemi_HEN["C"]
+    M_i = insiemi_HEN["M_i"]
+    N_j = insiemi_HEN["N_j"]
+    P = insiemi_HEN["P"]
+    P_H = insiemi_HEN["P_H"]
+    P_C = insiemi_HEN["P_C"]
+    HF = insiemi_HEN.get("HF", {})
+    CF = insiemi_HEN.get("CF", {})
+    MF = insiemi_HEN.get("MF", {})
+    NF = insiemi_HEN.get("NF", {})
+    VHU = insiemi_HEN.get("VHU", {})
+    VCU = insiemi_HEN.get("VCU", {})
+    T_intervallo = insiemi_HEN["T_intervallo"]
+    indici_q = []
+    for z in Z:
+        for i in H[z]:
+            for m in M_i[z, i]:
+                T_m_U = T_intervallo[z, m]["T_sup"]
+                for j in P_H[z, i, m]:
+                    if (i, j) not in P:
+                        continue
+                    if j not in C[z]:
+                        continue
+                    for n in N_j[z, j]:
+                        if i in VHU.get(z, []):
+                            if j not in CF.get(z, []) or n not in NF.get((z, j), []):
+                                continue
+                        if j in VCU.get(z, []):
+                            if i not in HF.get(z, []) or m not in MF.get((z, i), []):
+                                continue
+                        if i not in P_C[z, j, n]:
+                            continue
+                        T_n_L = T_intervallo[z, n]["T_inf"]
+                        if T_n_L < T_m_U - tolleranza:
+                            indici_q.append((z, i, m, j, n))
+    indici_q = sorted(set(indici_q), key=lambda x: (x[0], x[1], x[2], x[3], x[4]))
+    return indici_q
+
 
 ALL_BLOCKS = {
     "1",
@@ -29,18 +686,21 @@ ALL_BLOCKS = {
 
 
 # ============================================================
-# FUNZIONI DI SUPPORTO
+# 1_INPUT-5_DISCRETIZZAZIONE - ACCESSO AL CORE COMUNE
 # ============================================================
 
 def _modello(preparazione):
+    """Restituisce il modello DOcplex dalla preparazione comune."""
     return preparazione["modello_HEN"]["modello"]
 
 
 def _q(preparazione):
+    """Restituisce le variabili ``q[z,i,m,j,n]`` del core BAR05."""
     return preparazione["modello_HEN"]["q"]
 
 
 def _valore(var):
+    """Legge un valore DOcplex; IMPLEMENTATION CHOICE di post-processing."""
     try:
         return float(var.solution_value)
     except Exception:
@@ -50,35 +710,22 @@ def _valore(var):
             return None
 
 
-def _trova_vincolo(modello, nome):
-
-    try:
-        vincolo = modello.get_constraint_by_name(nome)
-
-        if vincolo is not None:
-            return vincolo
-
-    except Exception:
-        pass
-
-    for vincolo in modello.iter_constraints():
-
-        if getattr(vincolo, "name", None) == nome:
-            return vincolo
-
-    return None
-
-
 # ============================================================
-# PROCESS STREAMS SOGGETTE A NON-ISOTHERMAL MIXING
+# 3_INSIEMI_E_INDICI - STREAMS SOGGETTE A NON-ISOTHERMAL MIXING
 # ============================================================
 
-def individua_stream_NI_TRA15(preparazione):
-    """
-    Attiva il non-isothermal mixing su tutte le process streams.
+def individua_correnti_mixing_non_isotermo(preparazione):
+    """Costruisce ``NIH`` e ``NIC`` con tutte le process streams.
 
-    Riproduce il comportamento del vecchio
-    test_TRA15_free_NI_hot_cold_v2.py.
+    Riferimento bibliografico
+    ------------------------
+    BAR05, Sec. 2.1, insiemi ``NIH`` e ``NIC``; TRA15, Sec. 2.1.1 richiama
+    tali insiemi. L'attivazione su tutte le process streams è una
+    IMPLEMENTATION CHOICE - non direttamente definita da TRA15.
+
+    Input / Output
+    --------------
+    Restituisce due liste ordinate di codici, escludendo le utility.
     """
 
     insiemi = preparazione["insiemi_HEN"]
@@ -102,376 +749,38 @@ def individua_stream_NI_TRA15(preparazione):
 
 
 # ============================================================
-# GRUPPI q PER INTERVALLO
+# 3_INSIEMI_E_INDICI - GRUPPI q PER INTERVALLO
 # ============================================================
 
-def _costruisci_gruppi_q_TRA15(preparazione):
-
-    mdl = _modello(preparazione)
-    q = _q(preparazione)
-
-    gruppi_hot = {}
-    gruppi_cold = {}
-
-    for indice, variabile in q.items():
-
-        z, i, m, j, n = indice[:5]
-
-        gruppi_hot.setdefault(
-            (int(z), str(i), int(m)),
-            [],
-        ).append(variabile)
-
-        gruppi_cold.setdefault(
-            (int(z), str(j), int(n)),
-            [],
-        ).append(variabile)
-
-    q_hot = {
-        chiave: mdl.sum(variabili)
-        for chiave, variabili
-        in gruppi_hot.items()
-    }
-
-    q_cold = {
-        chiave: mdl.sum(variabili)
-        for chiave, variabili
-        in gruppi_cold.items()
-    }
-
-    return q_hot, q_cold
-
-
 # ============================================================
-# NON-ISOTHERMAL MIXING - BAR05 EQ. (7)-(10)
+# 9_SOLVE - PREPARAZIONE COMPLETA TRA15
 # ============================================================
 
-def aggiungi_non_isothermal_mixing_TRA15(
-    preparazione,
-    NIH,
-    NIC,
-):
-    """
-    Implementa il non-isothermal mixing utilizzato nella
-    precedente validazione TRA15.
-
-    Equazioni:
-        hot  : BAR05 Eq. (7) e (9)
-        cold : BAR05 Eq. (8) e (10)
-
-    I bilanci isotermi originali vengono rimossi esclusivamente
-    per le stream appartenenti a NIH/NIC.
-    """
-
-    mdl = _modello(preparazione)
-
-    insiemi = preparazione["insiemi_HEN"]
-
-    delta_H_H = dict(
-        preparazione["delta_H_HEN"]["delta_H_H"]
-    )
-
-    delta_H_C = dict(
-        preparazione["delta_H_HEN"]["delta_H_C"]
-    )
-
-    q_hot, q_cold = _costruisci_gruppi_q_TRA15(
-        preparazione
-    )
-
-    qbar_H = {}
-    qbar_C = {}
-
-    mancanti = []
-
-    vincoli_hot_rimossi = 0
-    vincoli_cold_rimossi = 0
-
-    # ========================================================
-    # HOT STREAMS
-    # ========================================================
-
-    intervalli_hot = {}
-
-    for z in insiemi["Z"]:
-
-        for i in NIH:
-
-            if i not in insiemi["H"][z]:
-                continue
-
-            if i in insiemi["HU"][z]:
-                continue
-
-            intervalli = sorted(
-                m
-                for m in insiemi["M_i"][z, i]
-                if (z, i, m) in delta_H_H
-                and float(delta_H_H[z, i, m]) > 1e-12
-            )
-
-            intervalli_hot[z, i] = intervalli
-
-            # Rimuove i vecchi bilanci isotermi.
-            for m in intervalli:
-
-                nome = f"bil_HP_z{z}_{i}_m{m}"
-
-                vincolo = _trova_vincolo(
-                    mdl,
-                    nome,
-                )
-
-                if vincolo is None:
-
-                    mancanti.append(nome)
-
-                else:
-
-                    mdl.remove_constraint(
-                        vincolo
-                    )
-
-                    vincoli_hot_rimossi += 1
-
-            # Variabili qbar canoniche a < b.
-            for indice_a, a in enumerate(intervalli):
-
-                for b in intervalli[indice_a + 1:]:
-
-                    qbar_H[z, i, a, b] = (
-                        mdl.continuous_var(
-                            lb=0,
-                            name=(
-                                f"NI_qbarH_"
-                                f"{z}_{i}_{a}_{b}"
-                            ),
-                        )
-                    )
-
-    # ========================================================
-    # COLD STREAMS
-    # ========================================================
-
-    intervalli_cold = {}
-
-    for z in insiemi["Z"]:
-
-        for j in NIC:
-
-            if j not in insiemi["C"][z]:
-                continue
-
-            if j in insiemi["CU"][z]:
-                continue
-
-            intervalli = sorted(
-                n
-                for n in insiemi["N_j"][z, j]
-                if (z, j, n) in delta_H_C
-                and float(delta_H_C[z, j, n]) > 1e-12
-            )
-
-            intervalli_cold[z, j] = intervalli
-
-            for n in intervalli:
-
-                nome = f"bil_CP_z{z}_{j}_n{n}"
-
-                vincolo = _trova_vincolo(
-                    mdl,
-                    nome,
-                )
-
-                if vincolo is None:
-
-                    mancanti.append(nome)
-
-                else:
-
-                    mdl.remove_constraint(
-                        vincolo
-                    )
-
-                    vincoli_cold_rimossi += 1
-
-            for indice_a, a in enumerate(intervalli):
-
-                for b in intervalli[indice_a + 1:]:
-
-                    qbar_C[z, j, a, b] = (
-                        mdl.continuous_var(
-                            lb=0,
-                            name=(
-                                f"NI_qbarC_"
-                                f"{z}_{j}_{a}_{b}"
-                            ),
-                        )
-                    )
-
-    if mancanti:
-
-        raise RuntimeError(
-            "Bilanci originali mancanti: "
-            + repr(mancanti[:20])
-        )
-
-    # ========================================================
-    # EQ. (7) e (9) - HOT
-    # ========================================================
-
-    n7 = 0
-    n9 = 0
-
-    for (z, i), intervalli in intervalli_hot.items():
-
-        for m in intervalli:
-
-            incoming = [
-                qbar_H[z, i, m, b]
-                for b in intervalli
-                if b > m
-                and (z, i, m, b) in qbar_H
-            ]
-
-            outgoing = [
-                qbar_H[z, i, a, m]
-                for a in intervalli
-                if a < m
-                and (z, i, a, m) in qbar_H
-            ]
-
-            q_esterno = q_hot.get(
-                (int(z), str(i), int(m)),
-                0,
-            )
-
-            mdl.add_constraint(
-                float(delta_H_H[z, i, m])
-                == (
-                    q_esterno
-                    + mdl.sum(incoming)
-                    - mdl.sum(outgoing)
-                ),
-                ctname=f"NI_BAR05_7_{z}_{i}_{m}",
-            )
-
-            n7 += 1
-
-            mdl.add_constraint(
-                mdl.sum(outgoing)
-                <= q_esterno,
-                ctname=f"NI_BAR05_9_{z}_{i}_{m}",
-            )
-
-            n9 += 1
-
-    # ========================================================
-    # EQ. (8) e (10) - COLD
-    # ========================================================
-
-    n8 = 0
-    n10 = 0
-
-    for (z, j), intervalli in intervalli_cold.items():
-
-        for n in intervalli:
-
-            incoming = [
-                qbar_C[z, j, a, n]
-                for a in intervalli
-                if a < n
-                and (z, j, a, n) in qbar_C
-            ]
-
-            outgoing = [
-                qbar_C[z, j, n, b]
-                for b in intervalli
-                if b > n
-                and (z, j, n, b) in qbar_C
-            ]
-
-            q_esterno = q_cold.get(
-                (int(z), str(j), int(n)),
-                0,
-            )
-
-            mdl.add_constraint(
-                float(delta_H_C[z, j, n])
-                == (
-                    q_esterno
-                    + mdl.sum(incoming)
-                    - mdl.sum(outgoing)
-                ),
-                ctname=f"NI_BAR05_8_{z}_{j}_{n}",
-            )
-
-            n8 += 1
-
-            mdl.add_constraint(
-                mdl.sum(outgoing)
-                <= q_esterno,
-                ctname=f"NI_BAR05_10_{z}_{j}_{n}",
-            )
-
-            n10 += 1
-
-    informazioni = {
-
-        "NIH": list(NIH),
-        "NIC": list(NIC),
-
-        "qbar_H": qbar_H,
-        "qbar_C": qbar_C,
-
-        "removed_hot":
-            vincoli_hot_rimossi,
-
-        "removed_cold":
-            vincoli_cold_rimossi,
-
-        "n_qbarH":
-            len(qbar_H),
-
-        "n_qbarC":
-            len(qbar_C),
-
-        "eq7": n7,
-        "eq9": n9,
-        "eq8": n8,
-        "eq10": n10,
-    }
-
-    preparazione[
-        "non_isothermal_mixing_TRA15"
-    ] = informazioni
-
-    return informazioni
-
-
-# ============================================================
-# PREPARAZIONE COMPLETA TRA15
-# ============================================================
-
-def prepara_HENS_TRA15(
+def prepara_modello(
     sorgente,
     delta_T_partition_max=2.5,
     numero_intervalli_min=1,
     separa_al_pinch=False,
     non_isothermal_mixing=True,
 ):
-    """
-    Costruisce il modello TRA15 utilizzato nella precedente
-    validazione dei Test 1 e Test 2.
+    """Costruisce il modello TRA15 sul core comune BAR05.
 
-    Default storici:
-        delta_T_partition_max = 2.5 °C
-        numero_intervalli_min = 1
-        separa_al_pinch = False
-        FULL non-isothermal mixing
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 2.1-2.2, Eq. (1)-(15); BAR05 Eq. (7)-(10) per il mixing non
+    isotermo.
+
+    Oggetti matematici
+    ------------------
+    Modello base, tecnologie ``T``/``P_t``, flexible streams e ``qbar``.
+
+    Note implementative
+    --------------------
+    Default storici preservati: passo 2.5 °C, almeno un intervallo, una zona
+    salvo input contrario e mixing NI completo.
     """
 
-    preparazione = prepara_HENS_TRA15_base(
+    preparazione = prepara_modello_base(
         sorgente,
 
         delta_T_partition_max=
@@ -485,38 +794,61 @@ def prepara_HENS_TRA15(
 
         bar05_blocchi=
             set(ALL_BLOCKS),
+
+        framework="tra15",
+
+        estensione={
+            "costruisci_flussi_flessibili": costruisci_flussi_flessibili,
+            "estremi_termici": estrai_estremi_termici_flessibili,
+            "costruisci_utilities_virtuali": costruisci_utilities_virtuali,
+            "costruisci_tecnologie": costruisci_tecnologie,
+            "costruisci_insiemi": costruisci_insiemi_estesi,
+            "genera_indici_scambio": genera_indici_scambio,
+            "aggiungi_tecnologia_virtuale": aggiungi_tecnologia_virtuale,
+            "forza_temperature_uscita_flessibili":
+                forza_temperature_uscita_flessibili,
+        },
     )
 
     if non_isothermal_mixing:
 
-        NIH, NIC = individua_stream_NI_TRA15(
+        NIH, NIC = individua_correnti_mixing_non_isotermo(
             preparazione
         )
 
-        aggiungi_non_isothermal_mixing_TRA15(
+        informazioni_mixing = aggiungi_mixing_non_isotermo(
             preparazione,
             NIH,
             NIC,
         )
+        preparazione["non_isothermal_mixing_TRA15"] = informazioni_mixing
 
     return preparazione
 
 
 # ============================================================
-# SOLUZIONE
+# 9_SOLVE - RISOLUZIONE
 # ============================================================
-def risolvi_HENS_TRA15(
+def risolvi_modello(
     preparazione,
     log_output=False,
     time_limit_s=10800,
     mip_gap=1e-7,
     threads=1,
 ):
-    """
-    Risolve il modello TRA15 con il core comune BAR05/TRA15.
+    """Risolve il modello TRA15 con il core comune BAR05/TRA15.
 
-    La preparazione contiene già le Eq. (7)-(10) di non-isothermal
-    mixing aggiunte da aggiungi_non_isothermal_mixing_TRA15().
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Eq. (11), minimizzazione del costo annuale.
+
+    Oggetti matematici
+    ------------------
+    Tutte le variabili del core e le Eq. BAR05 (7)-(10) aggiunte dal mixing.
+
+    Note implementative
+    --------------------
+    Parametri CPLEX, seed, limite temporale e gap sono preservati.
     """
 
     mdl = _modello(preparazione)
@@ -534,7 +866,7 @@ def risolvi_HENS_TRA15(
         pass
 
     # Usa il solver/estrattore completo già presente nel core.
-    risultati = risolvi_HEN_base(
+    risultati = risolvi_modello_base(
         preparazione,
         log_output=log_output,
         tolleranza=1e-6,
@@ -568,12 +900,23 @@ def risolvi_HENS_TRA15(
     return risultati
 
 # ============================================================
-# ESTRAZIONE RISULTATI
+# 10_POST_PROCESSING - ESTRAZIONE RISULTATI
 # ============================================================
 
-def estrai_risultati_TRA15(
+def estrai_risultati(
     preparazione,
 ):
+    """Estrae TAC, utility duties e carichi aggregati per match.
+
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 3 e Tabelle 1-2. Funzione di post-processing; non modifica il
+    modello matematico.
+
+    Oggetti matematici
+    ------------------
+    Obiettivo TAC, ``F_i^H``, ``F_j^C`` e somma delle ``q`` per ``(i,j)``.
+    """
 
     mdl = _modello(preparazione)
 
@@ -648,9 +991,16 @@ def estrai_risultati_TRA15(
 
 
 # ============================================================
-# STAMPA
+# 10_POST_PROCESSING / 11_VALIDAZIONE_DIAGNOSTICA
 # ============================================================
-def stampa_risultati_TRA15(risultati):
+def stampa_risultati(risultati):
+    """Stampa economia, rete, temperature, area e bilancio TRA15.
+
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 3, Tabelle 1-2 e Fig. 2-5. Il formato è una
+    IMPLEMENTATION CHOICE.
+    """
 
     separatore = "=" * 80
 
@@ -899,14 +1249,24 @@ def stampa_risultati_TRA15(risultati):
         f"{risultati['residuo_bilancio_energia_kW']:+.6e} kW"
     )
 
-def salva_validazione_TRA15_test1(
+def salva_validazione_test1(
     preparazione,
     risultati,
     percorso_file,
 ):
-    """
-    Salva il confronto automatico tra la soluzione simulata
-    e il Test 1 pubblicato in Tran et al. 2015.
+    """Salva il confronto automatico con il Test 1 pubblicato.
+
+    Riferimento bibliografico
+    ------------------------
+    TRA15, Sec. 3, Tabella 2 e Fig. 2.
+
+    Oggetti matematici
+    ------------------
+    TAC, HU, CU, topologia, duties e temperature degli exchanger.
+
+    Note implementative
+    --------------------
+    I benchmark sono applicati soltanto dopo il solve e non entrano nel MILP.
     """
 
     benchmark_TAC = 181.0
@@ -1346,4 +1706,3 @@ def salva_validazione_TRA15_test1(
 
     return testo
 # Alias semplice per esegui.py
-risolvi_HEN_TRA15 = risolvi_HENS_TRA15

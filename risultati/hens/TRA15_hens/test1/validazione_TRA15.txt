@@ -1,0 +1,44 @@
+====================================================================================================
+VALIDAZIONE HENS GENERALE - HENS case study - Test 1
+====================================================================================================
+Fonte: SOURCE_NOT_SPECIFIED
+Status solver: integer optimal solution
+
+GRANDEZZE GLOBALI
+----------------------------------------------------------------------------------------------------
+Grandezza                                      Fonte              Simulato                Errore %
+TAC_USD_year                           181000.000000         180793.086433               -0.114317
+hot_utility_kW                  SOURCE_NOT_SPECIFIED            202.500000  NOT_REPORTED_BY_SOURCE
+cold_utility_kW                 SOURCE_NOT_SPECIFIED            180.500000  NOT_REPORTED_BY_SOURCE
+numero_exchanger                            6.000000              6.000000               +0.000000
+numero_shell                    SOURCE_NOT_SPECIFIED              6.000000  NOT_REPORTED_BY_SOURCE
+area_totale_m2                  SOURCE_NOT_SPECIFIED           1265.881574  NOT_REPORTED_BY_SOURCE
+
+TOPOLOGIA COME MULTINSIEME DI MATCH
+----------------------------------------------------------------------------------------------------
+Errore conteggi topologia [%]: +0.000000
+H1-C1: fonte=1, simulato=1
+H1-C2: fonte=1, simulato=1
+H1-C3: fonte=1, simulato=1
+H2-C1: fonte=1, simulato=1
+H2-C2: fonte=1, simulato=1
+H3-C1: fonte=1, simulato=1
+
+DUTY E AREA AGGREGATI PER MATCH
+----------------------------------------------------------------------------------------------------
+Match                    Q fonte    Q simulato      Errore Q %       A fonte    A simulata      Errore A %
+H1-C1                     85.000        82.881       -2.492997          n.d.        62.410            n.d.
+H1-C2                     94.000        97.619       +3.850051          n.d.       130.145            n.d.
+H1-C3                    182.000       180.500       -0.824176          n.d.       122.456            n.d.
+H2-C1                    461.000       464.619       +0.785043          n.d.       530.792            n.d.
+H2-C2                    206.000       202.381       -1.756819          n.d.       240.641            n.d.
+H3-C1                    204.000       202.500       -0.735294          n.d.       179.438            n.d.
+
+DIMENSIONE MILP
+----------------------------------------------------------------------------------------------------
+Variabili: 1719
+Binarie: 162
+Vincoli: 2741
+Intervalli: 24
+Zone: 1
+

@@ -1,11 +1,7 @@
-
-
-
-
 # Energy Integration 
 
-La repository nasce con l’obiettivo di riprodurre, in forma computazionale, la metodologia descritta nel Capitolo 1, “Energy Integration of Continuous Processes: From Pinch Analysis to Hybrid Exergy/Pinch Analysis”, del volume di Assaad Zoughaib From Pinch Methodology to Pinch-Exergy Integration of Flexible Systems (Elsevier/ISTE Press, 2017).
-L’implementazione si appoggia ai riferimenti bibliografici richiamati nel capitolo per poter recuperare le informazioni in maniera completa per la ricostruzione dei modelli. In particolare i riferimenti sono primncipalmente: Thibault et al. (2015) per il predesign exergetico delle utilities, Barbaro e Bagajewicz (2005, corregidium 2006) per il modello MILP HENS e Tran et al. (2015) per l'estensione del modello di Barbaro e Bagajewicz
+La repository riproduce in forma computazionale la metodologia descritta in “Energy Integration of Continuous Processes: From Pinch Methodology to Pinch-Exergy Integration of Flexible Systems” di Assaad Zoughaib.
+I riferimenti principali sono Thibault et al. (2015, THI15) per il predesign exergetico delle utility, Barbaro e Bagajewicz (2005) con Corrigendum (2006, BAR05) per il MILP HENS e Tran et al. (2015, TRA15) per le estensioni del modello BAR05.
 
 ## Obiettivo del progetto
 
@@ -13,7 +9,7 @@ Il progetto mira a ricostruire alcune formulazioni della letteratura per:
 
 - calcolare cascata termica, fabbisogni minimi di utility e pinch point;
 - costruire Composite Curves e Grand Composite Curve (GCC);
-- preselezionare e dimensionare utility avanzate secondo un criterio
+- preselezionare e dimensionare utility secondo un criterio
   exergetico;
 - sintetizzare una Heat Exchanger Network (HEN) minimizzandone il Total
   Annualized Cost (TAC);
@@ -22,7 +18,7 @@ Il progetto mira a ricostruire alcune formulazioni della letteratura per:
 - confrontare a posteriori le soluzioni con benchmark pubblicati.
 
 
-## Funzionalità attualmente implementate
+## Funzionalità implementate
 
 ### Pinch Analysis e utilities predesign – THI15
 
@@ -46,15 +42,15 @@ implementa la struttura del problema di ottimizzazione ispirato a Thibault et al
 
 Il modulo [`src/hens/BAR05_hens.py`](src/hens/BAR05_hens.py) implementa un
 MILP per la Heat Exchanger Network Synthesis basato su Barbaro e Bagajewicz
-(2005) e sul relativo corrigendum (2006). Il preprocessing termico è interno
-al modulo e non dipende dalla pipeline THI15.
+(2005) e sul relativo corrigendum (2006). Il preprocessing termico identico a
+THI15 è riusato dal modulo neutro `src/common/thermal_preprocessing.py`.
 
 La formulazione corrente comprende:
 
 - partizionamento della scala termica in intervalli e heat-transfer zones;
-- correnti di processo, utilities fisiche e utilities virtuali di supporto
-  alla formulazione;
-- tecnologie di scambio e insieme esplicito dei match ammessi;
+- correnti di processo, utility fisiche e singola configurazione economica
+  dello scambiatore base;
+- insiemi di match e struttura topologica BAR05;
 - bilanci termici e variabili di trasferimento del calore;
 - stream splitting, consistenza delle portate e vincoli di fattibilità delle
   temperature;
@@ -63,18 +59,20 @@ La formulazione corrente comprende:
 - minimizzazione del TAC;
 - ricostruzione post-soluzione della rete, dei carichi termici, delle temperature
   interne e dei bilanci energetici;
-- report specifico di validazione per il benchmark BAR05 4S1.
+- non-isothermal mixing secondo BAR05 Eq. (7)–(10);
+- validazione post-solve con errore percentuale rispetto ai benchmark.
 
-Il caso attualmente verificato in modo più completo è **BAR05 4S1**.
-Gli altri casi della pubblicazione non sono ancora stati validati.
+Sono disponibili i casi BAR05 **4S1**, **7SP4**, **10SP1**, **EX1** ed **EX2**.
 
 ### HENS – TRA15
 
-Il modulo src/hens/TRA15_hens.py rappresenta un’estensione del modello HENS costruito a partire da BAR05. La struttura di base del problema — partizionamento termico, insiemi di correnti e utilities, variabili di scambio termico, calcolo delle aree, costi e minimizzazione del TAC — viene quindi riutilizzata dal modulo BAR05.
+Il modulo [`src/hens/TRA15_hens.py`](src/hens/TRA15_hens.py) importa e riusa il modello base BAR05. Le dipendenze sono unidirezionali: preprocessing comune → BAR05 → TRA15; BAR05 non importa TRA15.
 
-Su questa base vengono introdotte le funzionalità aggiuntive considerate nell’estensione di Tran et al. (2015). In particolare, il codice gestisce il non-isothermal mixing delle correnti di processo mediante le Eq. BAR05 (7)–(10), applicate sia alle correnti calde sia a quelle fredde. L’estensione TRA15 prevede inoltre la possibilità di considerare più tecnologie di scambio termico, caratterizzate da costi e fattori correttivi differenti, e correnti flessibili, per le quali la temperatura di uscita può variare entro un intervallo assegnato.
+TRA15 aggiunge tecnologie multiple con `FHEX_t` e match `P_t`, flexible streams, utility virtuali e tecnologia virtuale. Il non-isothermal mixing resta nel modulo BAR05, perché corrisponde alle Eq. BAR05 (7)–(10), ed è importato senza duplicazioni.
 
-Il caso attualmente verificato è TRA15 Test 1, nel quale è disponibile soltanto la tecnologia T1; la tecnologia T2 è presente nel file di input ma disattivata. Il modello riproduce correttamente la topologia pubblicata e fornisce valori di TAC, utilities, carichi termici e temperature interne molto vicini a quelli riportati dalla fonte.
+Sono disponibili e verificati TRA15 Test 1–4. Test 2 esercita le tecnologie multiple; Test 3–4 verificano anche flexible streams e utility virtuali.
+La separazione dei moduli e verificabile dagli import: il common non conosce modelli, BAR05 non importa TRA15 e TRA15 riusa il builder BAR05 attraverso punti di estensione.
+In questo modo le primitive termiche condivise restano neutrali, le equazioni BAR05 e il corrigendum hanno un solo proprietario, mentre tecnologie multiple, FHEX, P_t, correnti flessibili e utility virtuali rimangono confinate nel modulo TRA15. Questa regola guida le estensioni e riduce il rischio di dipendenze circolari.
 
 ## Struttura della repository
 
@@ -82,8 +80,8 @@ Il caso attualmente verificato è TRA15 Test 1, nel quale è disponibile soltant
 .
 ├── esegui.py
 ├── src/
-│   ├── predesign/
-│   │   └── THI15_predesign.py
+│   ├── common/thermal_preprocessing.py
+│   ├── predesign/THI15_predesign.py
 │   └── hens/
 │       ├── BAR05_hens.py
 │       └── TRA15_hens.py
@@ -93,22 +91,24 @@ Il caso attualmente verificato è TRA15 Test 1, nel quale è disponibile soltant
 │   │   └── dairy.json
 │   └── hens/
 │       ├── BAR05_hens/
-│       │   └── 4S1.json
+│       │   ├── 4S1.json, 7SP4.json, 10SP1.json
+│       │   └── EX1.json, EX2.json
 │       └── TRA15_hens/
-│           └── test1.json
+│           └── test1.json … test4.json
 ├── risultati/
-│   ├── predesign/
-│   │   ├── 4_flussi/
-│   │   └── dairy/
+│   ├── predesign/{4_flussi,dairy}/
 │   └── hens/
-│       ├── BAR05_hens/4S1/
-│       └── TRA15_hens/test1/
+│       ├── BAR05_hens/{4S1,7SP4,10SP1,EX1,EX2}/
+│       └── TRA15_hens/{test1,test2,test3,test4}/
+├── docs/
 ├── archivio/
 ├── .gitignore
 └── README.md
 ```
 
-`archivio/` contiene versioni preceedenti di alcuni file
+`archivio/` contiene versioni precedenti, casi non più collegati all'entry
+point e script diagnostici storici. Non fa parte della pipeline corrente. Non
+è presente una suite di test automatica attiva fuori da questa cartella.
 
 
 ## Requisiti
@@ -122,7 +122,7 @@ In particolare sono necessari:
 - **IBM CPLEX**, che risolve effettivamente i problemi di ottimizzazione;
 - **Matplotlib**, utilizzato per creare i grafici della Pinch Analysis e del predesign delle utilities.
 
-### Perché servono DOcplex e CPLEX?
+### A cosa servono DOcplex e CPLEX?
 
 Una parte importante di questa repository consiste nel trovare automaticamente la soluzione migliore tra molte configurazioni possibili.
 
@@ -194,7 +194,20 @@ python esegui.py dati_input/hens/TRA15_hens/test1.json hens tra15
 
 ## Stato della validazione
 
-vedi cartella risultati
+I report numerici sono nella cartella `risultati/`. Dopo il refactoring sono
+stati verificati BAR05 4S1 e TRA15 Test 1–2 mantenendo TAC, topologia e
+dimensioni MILP; Test 3–4 verificano inoltre le estensioni flessibili.
+
+La documentazione del refactoring conservativo è disponibile in:
+
+- [`docs/model_architecture.md`](docs/model_architecture.md): mappa comparata
+  delle undici fasi dei tre modelli;
+- [`docs/model_traceability.md`](docs/model_traceability.md): relazione
+  bidirezionale tra fonti, equazioni, funzioni e oggetti Python;
+- [`docs/refactoring_validation.md`](docs/refactoring_validation.md): baseline
+  e confronto numerico prima/dopo;
+- [`docs/refactoring_findings.md`](docs/refactoring_findings.md): incoerenze,
+  duplicazioni, riferimenti incerti e possibili bug non corretti.
 
 
 
@@ -203,10 +216,10 @@ vedi cartella risultati
 
 ## Stato di sviluppo / sviluppi futuri
 
-Le attività ancora in corso sono: 
+Le attività ancora in corso sono:
 
-- validare gli altri casi BAR05;
-- validare TRA15 Test 2–4;
+- completare il confronto quantitativo con tutte le tabelle delle fonti;
+- ampliare i controlli automatici di regressione e tracciabilità;
 
 ## Riferimenti bibliografici
 
