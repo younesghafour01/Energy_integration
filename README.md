@@ -99,7 +99,7 @@ Ad esempio, nella sintesi della rete di scambiatori il programma deve scegliere:
 Per fare questo vengono costruiti dei problemi matematici di ottimizzazione.
 
 **DOcplex** serve per descrivere questi problemi utilizzando Python.  
-Con DOcplex vengono quindi definite le variabili da trovare, le condizioni che devono essere rispettate e l'obiettivo da minimizzare nella forma accettata da softwear che poi dovrà risolvere il problema matematico.
+Con DOcplex vengono quindi definite le variabili da trovare, le condizioni che devono essere rispettate e l'obiettivo da minimizzare nella forma accettata dal softwear (CPLEX) che poi dovrà risolvere il problema matematico.
 
 **CPLEX** è invece il programma che riceve il problema costruito con DOcplex e cerca la soluzione migliore.
 
