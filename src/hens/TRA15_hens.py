@@ -1,6 +1,6 @@
 """Estensione TRA15 del core HENS BAR05.
 
-Architettura conservativa del modulo
+Architettura del modulo
 ------------------------------------
 1_INPUT-5_DISCRETIZZAZIONE: il core BAR05 costruisce correnti, utility fisiche,
     partizione e insiemi base; questo modulo aggiunge tecnologie multiple,
