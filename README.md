@@ -36,7 +36,7 @@ implementa la struttura del problema di ottimizzazione ispirato a Thibault et al
   Organic Rankine Cycle (`ORC`) e cogenerazione (`CHP`);
 - ricostruzione delle utility selezionate e dei relativi livelli termici,
   carichi termici e potenze elettriche;
-- produzione del report testuale e dei grafici T-Q.
+- stampa e salvataggio dei risultati e dei grafici T-Q.
 
 ### HENS – BAR05
 
@@ -52,15 +52,14 @@ La formulazione corrente comprende:
   dello scambiatore base;
 - insiemi di match e struttura topologica BAR05;
 - bilanci termici e variabili di trasferimento del calore;
-- stream splitting, consistenza delle portate e vincoli di fattibilità delle
-  temperature;
+- stream splitting, conservazione delle portate e vincoli di temperature;
 - calcolo linearizzato dell'area, conteggio di exchanger e shell, costi fissi,
   costi d'area e costi delle utilities;
 - minimizzazione del TAC;
 - ricostruzione post-soluzione della rete, dei carichi termici, delle temperature
   interne e dei bilanci energetici;
 - non-isothermal mixing secondo BAR05 Eq. (7)–(10);
-- validazione post-solve con errore percentuale rispetto ai benchmark.
+- validazione post-solve rispetto ai benchmark.
 
 Sono disponibili i casi BAR05 **4S1**, **7SP4**, **10SP1**, **EX1** ed **EX2**.
 
@@ -68,9 +67,9 @@ Sono disponibili i casi BAR05 **4S1**, **7SP4**, **10SP1**, **EX1** ed **EX2**.
 
 Il modulo [`src/hens/TRA15_hens.py`](src/hens/TRA15_hens.py) importa e riusa il modello base BAR05. 
 
-TRA15 aggiunge tecnologie multiple con `FHEX_t` e match `P_t`, flexible streams, utility virtuali e tecnologia virtuale. Il non-isothermal mixing resta nel modulo BAR05, perché corrisponde alle Eq. BAR05 (7)–(10), ed è importato senza duplicazioni.
+TRA15 aggiunge tecnologie multiple con `FHEX_t` e match `P_t`, flexible streams, utility virtuali e tecnologia virtuale. Il non-isothermal mixing resta nel modulo BAR05, perché corrisponde alle Eq. BAR05 (7)–(10).
 
-Sono disponibili e verificati TRA15 Test 1–4. Test 2 esercita le tecnologie multiple; Test 3–4 verificano anche flexible streams e utility virtuali.
+Sono disponibili e verificati TRA15 Test 1–4. Test 2 introduce la possibilità di usare tecnologie multiple; Test 3–4 verificano anche flexible streams e utility virtuali.
 
 
 ## Requisiti
@@ -100,7 +99,7 @@ Ad esempio, nella sintesi della rete di scambiatori il programma deve scegliere:
 Per fare questo vengono costruiti dei problemi matematici di ottimizzazione.
 
 **DOcplex** serve per descrivere questi problemi utilizzando Python.  
-Con DOcplex vengono quindi definite le variabili da trovare, le condizioni che devono essere rispettate e l'obiettivo da minimizzare.
+Con DOcplex vengono quindi definite le variabili da trovare, le condizioni che devono essere rispettate e l'obiettivo da minimizzare nella forma accettata da softwear che poi dovrà risolvere il problema matematico.
 
 **CPLEX** è invece il programma che riceve il problema costruito con DOcplex e cerca la soluzione migliore.
 
