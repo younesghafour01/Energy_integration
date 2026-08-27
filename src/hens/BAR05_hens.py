@@ -1,6 +1,6 @@
 """Modello HENS BAR05 con le correzioni del Corrigendum 2006.
 
-Architettura conservativa del modulo
+Architettura del modulo
 ------------------------------------
 1_INPUT: correnti, utility fisiche e configurazione economica BAR05.
 2_NORMALIZZAZIONE: Pinch condivisa e traslazione HENS specifica.
